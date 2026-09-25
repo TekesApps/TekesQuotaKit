@@ -1,0 +1,182 @@
+import hmac
+from datetime import UTC, datetime
+from typing import Annotated, Literal
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from .core import QuotaError, QuotaKit
+from .models import Client
+
+
+class ClientConfig(BaseModel):
+    client_id: str = Field(min_length=1, max_length=64)
+    key: str = Field(min_length=32)
+    tenant_id: str = Field(min_length=1, max_length=64)
+    service_code: str = Field(min_length=1, max_length=64)
+    role: Literal["issuer", "provider", "consumer"]
+
+
+class QuotaConfig(BaseModel):
+    unit_code: str = Field(min_length=1, max_length=32)
+    metering_mode: Literal["per_use", "reported_usage"]
+
+
+class ServiceConfig(BaseModel):
+    quota_code: str = Field(min_length=1, max_length=64)
+
+
+class LimitConfig(BaseModel):
+    limit_mode: Literal["finite", "unlimited"]
+    limit_value: int | None = Field(default=None, ge=0)
+    period_kind: Literal["day", "month", "level_term"]
+    timezone: str = "Asia/Shanghai"
+
+
+class AssignmentConfig(BaseModel):
+    level_code: str = Field(min_length=1, max_length=64)
+    expires_at: datetime | None = None
+
+
+class IssueRequest(BaseModel):
+    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    service_id: int = Field(gt=0)
+    request_key: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class TokenRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class SettleRequest(TokenRequest):
+    consumed_units: int = Field(ge=0)
+
+
+def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
+    if len(admin_key) < 32:
+        raise ValueError("Admin key must be at least 32 characters")
+    app = FastAPI(title="TekesQuotaKit", version="0.1.0")
+
+    @app.exception_handler(QuotaError)
+    async def quota_error(_request, exc: QuotaError):
+        return JSONResponse(
+            status_code=exc.status,
+            content={"code": exc.code, "message": exc.message, **exc.details},
+        )
+
+    def bearer(authorization: Annotated[str | None, Header()] = None) -> str:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Bearer credential required")
+        return authorization.removeprefix("Bearer ")
+
+    def admin(key: Annotated[str, Depends(bearer)]) -> None:
+        if not hmac.compare_digest(key, admin_key):
+            raise HTTPException(status_code=401, detail="Invalid admin credential")
+
+    def issuer(key: Annotated[str, Depends(bearer)]) -> Client:
+        return kit.client(key, "issuer")
+
+    def provider(key: Annotated[str, Depends(bearer)]) -> Client:
+        return kit.client(key, "provider")
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok"}
+
+    @app.put("/v1/admin/clients/{client_id}", dependencies=[Depends(admin)])
+    def put_client(client_id: str, payload: ClientConfig) -> dict:
+        if client_id != payload.client_id:
+            raise HTTPException(status_code=400, detail="Client ID mismatch")
+        kit.put_client(
+            payload.client_id, payload.key, payload.tenant_id, payload.service_code, payload.role
+        )
+        return {"client_id": client_id}
+
+    @app.put("/v1/admin/tenants/{tenant}/quotas/{quota_code}", dependencies=[Depends(admin)])
+    def put_quota(tenant: str, quota_code: str, payload: QuotaConfig) -> dict:
+        kit.put_quota(tenant, quota_code, payload.unit_code, payload.metering_mode)
+        return {"quota_code": quota_code}
+
+    @app.put("/v1/admin/tenants/{tenant}/levels/{level_code}", dependencies=[Depends(admin)])
+    def put_level(tenant: str, level_code: str) -> dict:
+        kit.put_level(tenant, level_code)
+        return {"level_code": level_code}
+
+    @app.put("/v1/admin/tenants/{tenant}/services/{service_code}", dependencies=[Depends(admin)])
+    def put_service(tenant: str, service_code: str, payload: ServiceConfig) -> dict:
+        service_id = kit.put_service(tenant, service_code, payload.quota_code)
+        return {"service_id": service_id, "service_code": service_code}
+
+    @app.put(
+        "/v1/admin/tenants/{tenant}/levels/{level_code}/limits/{quota_code}",
+        dependencies=[Depends(admin)],
+    )
+    def put_limit(tenant: str, level_code: str, quota_code: str, payload: LimitConfig) -> dict:
+        kit.put_limit(
+            tenant,
+            level_code,
+            quota_code,
+            payload.limit_mode,
+            payload.limit_value,
+            payload.period_kind,
+            payload.timezone,
+        )
+        return {"level_code": level_code, "quota_code": quota_code}
+
+    @app.put(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level", dependencies=[Depends(admin)]
+    )
+    def assign(tenant: str, subject_id: int, payload: AssignmentConfig) -> dict:
+        expiry = payload.expires_at
+        if expiry is not None and expiry.tzinfo is not None:
+            expiry = expiry.astimezone(UTC).replace(tzinfo=None)
+        kit.assign(tenant, subject_id, payload.level_code, expiry)
+        return {"subject_id": subject_id, "level_code": payload.level_code}
+
+    @app.post("/v1/token")
+    def issue(payload: IssueRequest, caller: Annotated[Client, Depends(issuer)]) -> dict:
+        return kit.issue(caller, payload.subject_id, payload.service_id, payload.request_key)
+
+    @app.post("/v1/redeem")
+    def redeem(
+        payload: IssueRequest,
+        caller: Annotated[Client, Depends(provider)],
+    ) -> dict:
+        return kit.redeem(caller, payload.subject_id, payload.service_id, payload.request_key)
+
+    @app.post("/v1/token/settle")
+    def settle(
+        payload: SettleRequest,
+        caller: Annotated[Client, Depends(provider)],
+    ) -> dict:
+        return kit.settle(payload.token, caller, payload.consumed_units)
+
+    @app.post("/v1/token/refund")
+    def refund(
+        payload: TokenRequest,
+        caller: Annotated[Client, Depends(provider)],
+        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+    ) -> dict:
+        return kit.refund(payload.token, caller, x_subject_id)
+
+    @app.post("/v1/token/status")
+    def token_status(
+        payload: TokenRequest,
+        caller: Annotated[Client, Depends(provider)],
+        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+    ) -> dict:
+        return kit.token_status(payload.token, caller, x_subject_id)
+
+    @app.get("/v1/quota")
+    def balance(
+        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        caller: Annotated[Client, Depends(issuer)],
+    ) -> dict:
+        return kit.balance(caller, x_subject_id)
+
+    @app.get("/v1/tokens/unsettled")
+    def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
+        return kit.unsettled(caller)
+
+    return app
