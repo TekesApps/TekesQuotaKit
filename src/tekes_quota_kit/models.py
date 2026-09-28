@@ -61,11 +61,41 @@ class Service(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     service_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_code: Mapped[str | None] = mapped_column(String(64))
+    service_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="atomic")
+    redemption_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="instant")
+    charge_units: Mapped[int | None] = mapped_column(BigInteger)
+    session_ttl_seconds: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (
         UniqueConstraint("tenant_id", "service_code", name="uq_tq_service_code"),
         ForeignKeyConstraint(
             ["tenant_id", "quota_code"], ["tq_quotas.tenant_id", "tq_quotas.quota_code"]
+        ),
+    )
+
+
+class ServiceMember(Base):
+    __tablename__ = "tq_service_members"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    parent_service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    child_service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    max_uses: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "parent_service_code",
+            "child_service_code",
+            name="uq_tq_service_member",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "parent_service_code"],
+            ["tq_services.tenant_id", "tq_services.service_code"],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "child_service_code"],
+            ["tq_services.tenant_id", "tq_services.service_code"],
         ),
     )
 
@@ -101,6 +131,8 @@ class Assignment(Base):
     level_code: Mapped[str] = mapped_column(String(64), nullable=False)
     effective_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    term_start: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    term_end: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     __table_args__ = (
         Index("ix_tq_assignment_subject", "tenant_id", "subject_id", "effective_at"),
         ForeignKeyConstraint(
@@ -147,6 +179,9 @@ class Token(Base):
     metering_mode: Mapped[str | None] = mapped_column(String(16))
     limit_value: Mapped[int | None] = mapped_column(BigInteger)
     consumed_units: Mapped[int | None] = mapped_column(BigInteger)
+    session_status: Mapped[str | None] = mapped_column(String(16))
+    session_expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    closed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     __table_args__ = (
         UniqueConstraint(
             "tenant_id",
@@ -157,6 +192,24 @@ class Token(Base):
             name="uq_tq_token_request",
         ),
         Index("ix_tq_unsettled", "status", "admitted_at"),
+    )
+
+
+class TokenItem(Base):
+    __tablename__ = "tq_token_items"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    token_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    child_service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    slot_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_uses: Mapped[int | None] = mapped_column(Integer)
+    request_key: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="available")
+    used_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    __table_args__ = (
+        ForeignKeyConstraint(["token_id"], ["tq_tokens.id"]),
+        UniqueConstraint("token_id", "child_service_code", "slot_no", name="uq_tq_token_item_slot"),
+        UniqueConstraint("token_id", "request_key", name="uq_tq_token_item_request"),
     )
 
 
