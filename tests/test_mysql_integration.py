@@ -4,11 +4,11 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from sqlalchemy.engine import make_url
 
 from tekes_quota_kit.core import QuotaError, QuotaKit
-from tekes_quota_kit.models import Base
+from tekes_quota_kit.models import Base, TokenItem
 
 
 @pytest.mark.skipif(
@@ -90,3 +90,51 @@ def test_mysql_atomic_redeem_and_reported_settlement():
     assert kit.settle(token, chat_provider, 7)["consumed_units"] == 7
     assert kit.settle(token, chat_provider, 7)["idempotent"] is True
     assert kit.balance(chat_issuer, 42)["used"] == 7
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEKES_QUOTA_TEST_DATABASE_URL"), reason="No disposable MySQL URL"
+)
+def test_mysql_composite_slots_and_refund_guard():
+    url = os.environ["TEKES_QUOTA_TEST_DATABASE_URL"]
+    assert make_url(url).database.startswith("tekes_quota_test_")
+    kit = QuotaKit(url, "test-token-secret-with-at-least-32-characters")
+    Base.metadata.create_all(kit.engine)
+    tenant = "composite-mysql-test"
+    kit.put_quota(tenant, "sessions", "use", "per_use")
+    kit.put_level(tenant, "regular")
+    kit.put_limit(tenant, "regular", "sessions", "finite", 1, "level_term", "Asia/Shanghai")
+    from datetime import timedelta
+
+    from tekes_quota_kit.core import utc_now
+
+    kit.assign(tenant, 42, "regular", utc_now() + timedelta(days=30))
+    kit.put_service(
+        tenant, "session", "sessions", kind="composite", charge_units=1, session_ttl_seconds=3600
+    )
+    kit.put_service(tenant, "pressure", None)
+    kit.put_service_member(tenant, "session", "pressure")
+    key = "mysql-composite-client-key-with-at-least-32-characters"
+    kit.put_client("mysql-composite-client", key, tenant, "session", "consumer")
+    caller = kit.client(key, "provider")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: kit.redeem(caller, 42, "session", "visit-1"), range(2)))
+    assert sorted(result["idempotent"] for result in results) == [False, True]
+    token = results[0]["token"]
+    assert results[1]["token"] == token
+    assert kit.balance(caller, 42)["used"] == 1
+    assert kit.use(token, caller, 42, "pressure", "pressure-1")["slot_no"] == 1
+    assert kit.use(token, caller, 42, "pressure", "pressure-1")["idempotent"] is True
+    assert kit.use(token, caller, 42, "pressure", "pressure-2")["slot_no"] == 2
+    with pytest.raises(QuotaError, match="Used composite session cannot refund"):
+        kit.refund(token, caller, 42)
+    assert kit.settle(token, caller, None)["session_status"] == "closed"
+    with kit.sessions() as db:
+        assert (
+            len(
+                db.scalars(
+                    select(TokenItem).where(TokenItem.child_service_code == "pressure")
+                ).all()
+            )
+            == 3
+        )

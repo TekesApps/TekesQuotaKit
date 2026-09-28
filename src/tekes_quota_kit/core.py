@@ -7,12 +7,24 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Assignment, Client, Ledger, Level, Limit, Quota, Service, Token, Usage
+from .models import (
+    Assignment,
+    Client,
+    Ledger,
+    Level,
+    Limit,
+    Quota,
+    Service,
+    ServiceMember,
+    Token,
+    TokenItem,
+    Usage,
+)
 
 MAX_SUBJECT_ID = 9223372036854775807
 
@@ -44,9 +56,14 @@ def _period(
 ) -> tuple[datetime, datetime]:
     if kind == "level_term":
         _require(
-            assignment.expires_at is not None, "missing_term_end", "Level term requires expiry"
+            assignment.term_end is not None or assignment.expires_at is not None,
+            "missing_term_end",
+            "Level term requires expiry",
         )
-        return assignment.effective_at, assignment.expires_at
+        return (
+            assignment.term_start or assignment.effective_at,
+            assignment.term_end or assignment.expires_at,
+        )
     local = now.replace(tzinfo=UTC).astimezone(ZoneInfo(timezone))
     if kind == "day":
         start = local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -131,6 +148,45 @@ class QuotaKit:
                 role,
             )
 
+    def provision_client(
+        self,
+        client_id: str,
+        tenant_id: str,
+        service_code: str,
+        role: str,
+        *,
+        rotate: bool = False,
+    ) -> tuple[str, Service]:
+        """Generate a client key; only its hash is persisted."""
+        _require(
+            role in {"issuer", "provider", "consumer"}, "invalid_role", "Invalid client role", 400
+        )
+        key = secrets.token_urlsafe(48)
+        with self.sessions.begin() as db:
+            service = db.scalar(
+                select(Service).where(
+                    Service.tenant_id == tenant_id,
+                    Service.service_code == service_code,
+                )
+            )
+            _require(service is not None, "unknown_service", "Service not found", 404)
+            row = db.scalar(select(Client).where(Client.client_id == client_id).with_for_update())
+            _require(
+                row is None or rotate,
+                "client_exists",
+                "Client exists; request an explicit key rotation",
+            )
+            if row is None:
+                row = Client(client_id=client_id)
+                db.add(row)
+            row.key_hash = self.key_hash(key)
+            row.tenant_id = tenant_id
+            row.service_code = service_code
+            row.role = role
+            db.flush()
+            db.expunge(service)
+        return key, service
+
     def put_quota(self, tenant: str, code: str, unit: str, mode: str) -> None:
         _require(
             mode in {"per_use", "reported_usage"}, "invalid_mode", "Invalid metering mode", 400
@@ -156,11 +212,53 @@ class QuotaKit:
                 )
             row.unit_code, row.metering_mode = unit, mode
 
-    def put_service(self, tenant: str, code: str, quota: str) -> int:
+    def put_service(
+        self,
+        tenant: str,
+        code: str,
+        quota: str | None,
+        *,
+        kind: str = "atomic",
+        redemption_mode: str | None = None,
+        charge_units: int | None = None,
+        session_ttl_seconds: int | None = None,
+    ) -> int:
+        redemption_mode = redemption_mode or ("durable" if kind == "composite" else "instant")
+        _require(
+            kind in {"atomic", "composite"}, "invalid_service_kind", "Invalid Service kind", 400
+        )
+        _require(
+            redemption_mode in {"instant", "durable"}
+            and (kind != "composite" or redemption_mode == "durable")
+            and (
+                (
+                    redemption_mode == "instant"
+                    and kind == "atomic"
+                    and charge_units is None
+                    and session_ttl_seconds is None
+                )
+                or (
+                    redemption_mode == "durable"
+                    and quota is not None
+                    and charge_units is not None
+                    and charge_units > 0
+                    and (session_ttl_seconds is None or 60 <= session_ttl_seconds <= 86400)
+                )
+            ),
+            "invalid_service_config",
+            "Invalid Service configuration",
+            400,
+        )
         with self.sessions.begin() as db:
-            _require(
-                self._quota(db, tenant, quota) is not None, "unknown_quota", "Quota not found", 404
-            )
+            if quota is not None:
+                quota_row = self._quota(db, tenant, quota)
+                _require(quota_row is not None, "unknown_quota", "Quota not found", 404)
+                if redemption_mode == "durable":
+                    _require(
+                        quota_row.metering_mode == "per_use",
+                        "wrong_mode",
+                        "Durable Service needs per-use Quota",
+                    )
             row = db.scalar(
                 select(Service).where(Service.tenant_id == tenant, Service.service_code == code)
             )
@@ -168,8 +266,65 @@ class QuotaKit:
                 row = Service(tenant_id=tenant, service_code=code)
                 db.add(row)
             row.quota_code = quota
+            row.service_kind = kind
+            row.redemption_mode = redemption_mode
+            row.charge_units = charge_units
+            row.session_ttl_seconds = session_ttl_seconds
             db.flush()
             return row.id
+
+    def put_service_member(
+        self, tenant: str, parent: str, child: str, max_uses: int | None = None
+    ) -> None:
+        _require(parent != child, "invalid_member", "Parent and child must differ", 400)
+        _require(
+            max_uses is None or (type(max_uses) is int and 1 <= max_uses <= 2147483647),
+            "invalid_member",
+            "Max uses must be positive or null",
+            400,
+        )
+        with self.sessions.begin() as db:
+            services = db.scalars(
+                select(Service).where(
+                    Service.tenant_id == tenant, Service.service_code.in_([parent, child])
+                )
+            ).all()
+            by_code = {row.service_code: row for row in services}
+            _require(
+                parent in by_code and child in by_code, "unknown_service", "Service not found", 404
+            )
+            _require(
+                by_code[parent].service_kind == "composite"
+                and by_code[child].service_kind == "atomic",
+                "invalid_member",
+                "Parent must be composite and child must be atomic",
+                400,
+            )
+            row = db.scalar(
+                select(ServiceMember).where(
+                    ServiceMember.tenant_id == tenant,
+                    ServiceMember.parent_service_code == parent,
+                    ServiceMember.child_service_code == child,
+                )
+            )
+            if row is None:
+                row = ServiceMember(
+                    tenant_id=tenant, parent_service_code=parent, child_service_code=child
+                )
+                db.add(row)
+            row.max_uses = max_uses
+
+    def delete_service_member(self, tenant: str, parent: str, child: str) -> None:
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(ServiceMember).where(
+                    ServiceMember.tenant_id == tenant,
+                    ServiceMember.parent_service_code == parent,
+                    ServiceMember.child_service_code == child,
+                )
+            )
+            _require(row is not None, "unknown_member", "Service member not found", 404)
+            db.delete(row)
 
     def put_level(self, tenant: str, code: str) -> None:
         with self.sessions.begin() as db:
@@ -228,29 +383,60 @@ class QuotaKit:
             )
 
     def assign(
-        self, tenant: str, subject: int, level: str, expires_at: datetime | None = None
+        self,
+        tenant: str,
+        subject: int,
+        level: str,
+        expires_at: datetime | None = None,
+        *,
+        effective_at: datetime | None = None,
+        renew_term: bool = False,
     ) -> None:
         now = utc_now()
+        effective_at = effective_at or now
         _require(
             _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
         )
         _require(
-            expires_at is None or expires_at > now, "invalid_expiry", "Expiry must be future", 400
+            effective_at >= now - timedelta(seconds=5),
+            "invalid_effective_at",
+            "Effective time is in past",
+            400,
+        )
+        _require(
+            expires_at is None or expires_at > effective_at,
+            "invalid_expiry",
+            "Expiry must follow start",
+            400,
         )
         with self.sessions.begin() as db:
             _require(
                 self._level(db, tenant, level) is not None, "unknown_level", "Level not found", 404
             )
-            active = self._assignment(db, tenant, subject, now, lock=True, required=False)
+            active = self._assignment(db, tenant, subject, effective_at, lock=True, required=False)
+            if active and not renew_term:
+                term_start = active.term_start or active.effective_at
+                term_end = active.term_end or active.expires_at
+                _require(
+                    expires_at is None or expires_at == term_end,
+                    "term_change_requires_renewal",
+                    "Changing term end requires renewal",
+                    400,
+                )
+                expires_at = term_end
+            else:
+                term_start, term_end = effective_at, expires_at
             if active:
-                active.expires_at = now
+                active.expires_at = effective_at
             db.add(
                 Assignment(
                     tenant_id=tenant,
                     subject_id=subject,
                     level_code=level,
-                    effective_at=now,
+                    effective_at=effective_at,
                     expires_at=expires_at,
+                    term_start=term_start,
+                    term_end=term_end,
                 )
             )
 
@@ -297,6 +483,7 @@ class QuotaKit:
         )
         _require(service is not None, "unknown_service", "Service not found", 404)
         quota = QuotaKit._quota(db, tenant, service.quota_code)
+        _require(quota is not None, "no_quota", "Service has no direct Quota")
         assignment = QuotaKit._assignment(db, tenant, subject, now)
         limit = db.scalar(
             select(Limit).where(
@@ -343,10 +530,13 @@ class QuotaKit:
         )
 
     @staticmethod
-    def _service_for_caller(db: Session, caller: Client, service_id: int) -> Service:
-        service = db.scalar(
-            select(Service).where(Service.id == service_id, Service.tenant_id == caller.tenant_id)
+    def _service_for_caller(db: Session, caller: Client, service_id: int | str) -> Service:
+        identity = (
+            Service.id == service_id
+            if type(service_id) is int
+            else Service.service_code == service_id
         )
+        service = db.scalar(select(Service).where(identity, Service.tenant_id == caller.tenant_id))
         _require(service is not None, "unknown_service", "Service not found", 404)
         _require(
             hmac.compare_digest(caller.service_code, service.service_code),
@@ -365,11 +555,7 @@ class QuotaKit:
         request_key: str,
         now: datetime,
     ) -> tuple[str, Token, bool]:
-        identity = json.dumps(
-            [caller.tenant_id, caller.client_id, subject, service.service_code, request_key],
-            separators=(",", ":"),
-        )
-        token = "tq_" + hmac.new(self.secret, identity.encode(), hashlib.sha256).hexdigest()
+        token = self._token_for_request(caller, subject, service.service_code, request_key)
         token_hash = self.key_hash(token)
         values = dict(
             token_hash=token_hash,
@@ -394,6 +580,15 @@ class QuotaKit:
             inserted = result.rowcount == 1
         row = db.scalar(select(Token).where(Token.token_hash == token_hash).with_for_update())
         return token, row, inserted
+
+    def _token_for_request(
+        self, caller: Client, subject: int, service_code: str, request_key: str
+    ) -> str:
+        identity = json.dumps(
+            [caller.tenant_id, caller.client_id, subject, service_code, request_key],
+            separators=(",", ":"),
+        )
+        return "tq_" + hmac.new(self.secret, identity.encode(), hashlib.sha256).hexdigest()
 
     @staticmethod
     def _validate_request(subject: int, service_id: int) -> None:
@@ -423,7 +618,13 @@ class QuotaKit:
         now = utc_now()
         with self.sessions.begin() as db:
             service = self._service_for_caller(db, issuer, service_id)
+            _require(
+                service.service_kind == "atomic",
+                "wrong_service_kind",
+                "Composite Service requires begin",
+            )
             quota = self._quota(db, issuer.tenant_id, service.quota_code)
+            _require(quota is not None, "no_quota", "Service has no direct Quota")
             _require(
                 quota.metering_mode == "reported_usage",
                 "wrong_mode",
@@ -456,16 +657,64 @@ class QuotaKit:
             }
 
     def redeem(
-        self, provider: Client, subject: int, service_id: int, request_key: str | None = None
+        self,
+        provider: Client,
+        subject: int,
+        service_id: int | str,
+        request_key: str | None = None,
+        duration_seconds: int | None = None,
     ) -> dict:
-        """Atomically admit and charge a per-use Service in one call."""
-        self._validate_request(subject, service_id)
+        """Atomically charge instant use or open a charged durable use."""
+        _require(
+            _valid_subject(subject)
+            and (
+                (type(service_id) is int and service_id > 0)
+                or (type(service_id) is str and 0 < len(service_id) <= 64)
+            ),
+            "missing_identity",
+            "Subject and Service required",
+            400,
+        )
         self._validate_request_key(request_key)
+        _require(
+            duration_seconds is None or 60 <= duration_seconds <= 86400,
+            "invalid_duration",
+            "Duration must be 60 to 86400 seconds",
+            400,
+        )
+        with self.sessions() as db:
+            service = self._service_for_caller(db, provider, service_id)
+            durable = service.redemption_mode == "durable"
+            service_code = service.service_code
+            if request_key is not None:
+                token = self._token_for_request(provider, subject, service_code, request_key)
+                prior = db.scalar(select(Token).where(Token.token_hash == self.key_hash(token)))
+                durable = durable or (prior is not None and prior.session_status is not None)
+        if durable:
+            _require(
+                request_key is not None,
+                "missing_request_key",
+                "Durable use needs request key",
+                400,
+            )
+            return self.begin(provider, subject, service_code, request_key, duration_seconds)
+        _require(
+            duration_seconds is None,
+            "wrong_mode",
+            "Instant use does not accept duration",
+            400,
+        )
         request_key = request_key or secrets.token_hex(16)
         now = utc_now()
         with self.sessions.begin() as db:
             service = self._service_for_caller(db, provider, service_id)
+            _require(
+                service.redemption_mode == "instant" and service.service_kind == "atomic",
+                "wrong_service_kind",
+                "Durable Service requires durable redemption",
+            )
             quota = self._quota(db, provider.tenant_id, service.quota_code)
+            _require(quota is not None, "no_quota", "Service has no direct Quota")
             _require(
                 quota.metering_mode == "per_use", "wrong_mode", "Metered Service requires token"
             )
@@ -506,8 +755,319 @@ class QuotaKit:
                 "quota_code": row.quota_code,
             }
 
-    def settle(self, token: str, provider: Client, consumed_units: int) -> dict:
-        _require(consumed_units >= 0, "invalid_units", "Consumed units must be nonnegative", 400)
+    def begin(
+        self,
+        provider: Client,
+        subject: int,
+        service_code: str,
+        request_key: str,
+        duration_seconds: int | None = None,
+    ) -> dict:
+        """Charge once and snapshot the allowed Services for durable use."""
+        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        self._validate_request_key(request_key)
+        _require(
+            duration_seconds is None or 60 <= duration_seconds <= 86400,
+            "invalid_duration",
+            "Duration must be 60 to 86400 seconds",
+            400,
+        )
+        _require(
+            request_key is not None, "missing_request_key", "Composite use needs request key", 400
+        )
+        now = utc_now()
+        with self.sessions.begin() as db:
+            service = db.scalar(
+                select(Service).where(
+                    Service.tenant_id == provider.tenant_id,
+                    Service.service_code == service_code,
+                )
+            )
+            _require(service is not None, "unknown_service", "Service not found", 404)
+            _require(
+                hmac.compare_digest(provider.service_code, service_code),
+                "service_forbidden",
+                "Client cannot access this Service",
+                403,
+            )
+            token = self._token_for_request(provider, subject, service_code, request_key)
+            prior = db.scalar(
+                select(Token).where(Token.token_hash == self.key_hash(token)).with_for_update()
+            )
+            if prior is not None:
+                _require(
+                    duration_seconds is None
+                    or prior.session_expires_at
+                    == prior.admitted_at + timedelta(seconds=duration_seconds),
+                    "duration_conflict",
+                    "Request key already has another duration",
+                )
+                grants = db.scalars(
+                    select(TokenItem).where(
+                        TokenItem.token_id == prior.id, TokenItem.slot_no == 0
+                    )
+                ).all()
+                return {
+                    "token": token,
+                    "status": prior.status,
+                    "session_status": prior.session_status,
+                    "expires_at": (
+                        prior.session_expires_at.isoformat() + "Z"
+                        if prior.session_expires_at is not None
+                        else None
+                    ),
+                    "authorized_services": [item.child_service_code for item in grants],
+                    "idempotent": True,
+                }
+            _require(
+                service.redemption_mode == "durable",
+                "wrong_service_kind",
+                "Service is not durable",
+            )
+            token, row, inserted = self._create_token(
+                db, provider, subject, service, request_key, now
+            )
+            if not inserted:
+                _require(
+                    duration_seconds is None
+                    or row.session_expires_at
+                    == row.admitted_at + timedelta(seconds=duration_seconds),
+                    "duration_conflict",
+                    "Request key already has another duration",
+                )
+                grants = db.scalars(
+                    select(TokenItem).where(
+                        TokenItem.token_id == row.id, TokenItem.slot_no == 0
+                    )
+                ).all()
+                return {
+                    "token": token,
+                    "status": row.status,
+                    "session_status": row.session_status,
+                    "expires_at": (
+                        row.session_expires_at.isoformat() + "Z"
+                        if row.session_expires_at is not None
+                        else None
+                    ),
+                    "authorized_services": [item.child_service_code for item in grants],
+                    "idempotent": True,
+                }
+            quota, limit, start, end = self._policy(
+                db, provider.tenant_id, subject, service_code, now
+            )
+            _require(
+                quota.metering_mode == "per_use", "wrong_mode", "Composite needs per-use Quota"
+            )
+            members = db.scalars(
+                select(ServiceMember)
+                .where(
+                    ServiceMember.tenant_id == provider.tenant_id,
+                    ServiceMember.parent_service_code == service_code,
+                )
+                .order_by(ServiceMember.child_service_code)
+            ).all()
+            if service.service_kind == "composite":
+                _require(bool(members), "empty_composite", "Composite Service has no members")
+            usage = self._usage(db, provider.tenant_id, subject, quota.quota_code, start, end)
+            units = service.charge_units
+            _require(
+                limit.limit_mode == "unlimited" or usage.used_units + units <= limit.limit_value,
+                "quota_exhausted",
+                "Quota exhausted",
+            )
+            row.status = "settled"
+            row.provider_client_id = provider.client_id
+            row.period_start, row.period_end = start, end
+            row.unit_code, row.metering_mode, row.limit_value = (
+                quota.unit_code,
+                quota.metering_mode,
+                limit.limit_value,
+            )
+            row.consumed_units = units
+            row.session_status = "open"
+            ttl_seconds = (
+                duration_seconds
+                if duration_seconds is not None
+                else service.session_ttl_seconds
+            )
+            row.session_expires_at = (
+                now + timedelta(seconds=ttl_seconds)
+                if ttl_seconds is not None
+                else None
+            )
+            usage.used_units += units
+            self._ledger(db, row, "consume", units, now)
+            child_grants = (
+                [(member.child_service_code, member.max_uses) for member in members]
+                if service.service_kind == "composite"
+                else [(service.service_code, None)]
+            )
+            for child_code, max_uses in child_grants:
+                db.add(
+                    TokenItem(
+                        token_id=row.id,
+                        child_service_code=child_code,
+                        slot_no=0,
+                        max_uses=max_uses,
+                        status="available",
+                    )
+                )
+            return {
+                "token": token,
+                "status": "settled",
+                "session_status": "open",
+                "expires_at": (
+                    row.session_expires_at.isoformat() + "Z"
+                    if row.session_expires_at is not None
+                    else None
+                ),
+                "authorized_services": [code for code, _ in child_grants],
+                "idempotent": False,
+            }
+
+    def use(
+        self, token: str, provider: Client, subject: int, child_code: str, request_key: str
+    ) -> dict:
+        self._validate_request_key(request_key)
+        _require(request_key is not None, "missing_request_key", "Child use needs request key", 400)
+        now = utc_now()
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(Token).where(Token.token_hash == self.key_hash(token)).with_for_update()
+            )
+            self._check_token(row, provider, subject)
+            _require(
+                row.provider_client_id == provider.client_id,
+                "wrong_provider",
+                "Only beginning client may use this session",
+                403,
+            )
+            _require(
+                row.status == "settled"
+                and row.session_status == "open"
+                and (row.session_expires_at is None or row.session_expires_at > now),
+                "session_not_open",
+                "Session is closed or expired",
+            )
+            prior = db.scalar(
+                select(TokenItem).where(
+                    TokenItem.token_id == row.id, TokenItem.request_key == request_key
+                )
+            )
+            if prior is not None:
+                _require(
+                    prior.child_service_code == child_code,
+                    "request_key_conflict",
+                    "Request key belongs to another child",
+                )
+                return {
+                    "child_service_code": child_code,
+                    "slot_no": prior.slot_no,
+                    "status": prior.status,
+                    "idempotent": True,
+                }
+            grant = db.scalar(
+                select(TokenItem)
+                .where(
+                    TokenItem.token_id == row.id,
+                    TokenItem.child_service_code == child_code,
+                    TokenItem.slot_no == 0,
+                    TokenItem.status == "available",
+                )
+                .with_for_update()
+            )
+            _require(grant is not None, "child_unavailable", "Child is not included")
+            last_no = db.scalar(
+                select(func.max(TokenItem.slot_no)).where(
+                    TokenItem.token_id == row.id,
+                    TokenItem.child_service_code == child_code,
+                )
+            )
+            use_no = (last_no or 0) + 1
+            _require(
+                grant.max_uses is None or use_no <= grant.max_uses,
+                "child_unavailable",
+                "Child use limit reached",
+            )
+            db.add(
+                TokenItem(
+                    token_id=row.id,
+                    child_service_code=child_code,
+                    slot_no=use_no,
+                    request_key=request_key,
+                    status="used",
+                    used_at=now,
+                )
+            )
+            return {
+                "child_service_code": child_code,
+                "slot_no": use_no,
+                "status": "used",
+                "idempotent": False,
+            }
+
+    def close(self, token: str, provider: Client, subject: int) -> dict:
+        now = utc_now()
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(Token).where(Token.token_hash == self.key_hash(token)).with_for_update()
+            )
+            self._check_token(row, provider, subject)
+            _require(
+                row.provider_client_id == provider.client_id,
+                "wrong_provider",
+                "Only beginning client may close this session",
+                403,
+            )
+            _require(
+                row.session_status is not None, "wrong_service_kind", "Not a composite session"
+            )
+            if row.session_status != "open":
+                return {"session_status": row.session_status, "idempotent": True}
+            row.session_status = (
+                "expired"
+                if row.session_expires_at is not None and row.session_expires_at <= now
+                else "closed"
+            )
+            row.closed_at = now
+            for item in db.scalars(
+                select(TokenItem).where(
+                    TokenItem.token_id == row.id, TokenItem.status == "available"
+                )
+            ).all():
+                item.status = "expired"
+            return {"session_status": row.session_status, "idempotent": False}
+
+    def expire_sessions(self, limit: int = 500) -> int:
+        _require(1 <= limit <= 5000, "invalid_limit", "Limit must be 1 to 5000", 400)
+        now = utc_now()
+        count = 0
+        with self.sessions.begin() as db:
+            rows = db.scalars(
+                select(Token)
+                .where(Token.session_status == "open", Token.session_expires_at <= now)
+                .order_by(Token.session_expires_at, Token.id)
+                .limit(limit)
+                .with_for_update()
+            ).all()
+            for row in rows:
+                row.session_status, row.closed_at = "expired", now
+                for item in db.scalars(
+                    select(TokenItem).where(
+                        TokenItem.token_id == row.id, TokenItem.status == "available"
+                    )
+                ).all():
+                    item.status = "expired"
+                count += 1
+        return count
+
+    def settle(self, token: str, provider: Client, consumed_units: int | None) -> dict:
+        _require(
+            consumed_units is None or consumed_units >= 0,
+            "invalid_units",
+            "Consumed units must be nonnegative",
+            400,
+        )
         now = utc_now()
         with self.sessions.begin() as db:
             row = db.scalar(
@@ -520,7 +1080,38 @@ class QuotaKit:
                 "Only the settling provider may retry settlement",
                 403,
             )
+            if row.session_status is not None:
+                _require(
+                    consumed_units is None,
+                    "wrong_mode",
+                    "Durable settle does not consume units again",
+                    400,
+                )
+                if row.session_status != "open":
+                    return {
+                        "status": row.status,
+                        "session_status": row.session_status,
+                        "idempotent": True,
+                    }
+                row.session_status = (
+                    "expired"
+                    if row.session_expires_at is not None and row.session_expires_at <= now
+                    else "closed"
+                )
+                row.closed_at = now
+                for item in db.scalars(
+                    select(TokenItem).where(
+                        TokenItem.token_id == row.id, TokenItem.status == "available"
+                    )
+                ).all():
+                    item.status = "expired"
+                return {
+                    "status": row.status,
+                    "session_status": row.session_status,
+                    "idempotent": False,
+                }
             _require(row.metering_mode == "reported_usage", "wrong_mode", "Quota is not metered")
+            _require(consumed_units is not None, "missing_units", "Metered settle needs units", 400)
             if row.status == "settled":
                 _require(
                     row.consumed_units == consumed_units,
@@ -555,12 +1146,26 @@ class QuotaKit:
             if row.status == "refunded":
                 return {"status": "refunded", "idempotent": True}
             _require(row.status == "settled", "not_redeemed", "Token was not redeemed")
+            if row.session_status is not None:
+                used = db.scalar(
+                    select(TokenItem.id)
+                    .where(TokenItem.token_id == row.id, TokenItem.status == "used")
+                    .limit(1)
+                )
+                _require(used is None, "child_already_used", "Used composite session cannot refund")
+                row.session_status, row.closed_at = "closed", now
+                for item in db.scalars(
+                    select(TokenItem).where(
+                        TokenItem.token_id == row.id, TokenItem.status == "available"
+                    )
+                ).all():
+                    item.status = "expired"
             usage = self._usage(
                 db, row.tenant_id, subject, row.quota_code, row.period_start, row.period_end
             )
-            usage.used_units -= 1
+            usage.used_units -= row.consumed_units
             row.status = "refunded"
-            self._ledger(db, row, "refund", -1, now)
+            self._ledger(db, row, "refund", -row.consumed_units, now)
             return {"status": "refunded", "idempotent": False}
 
     @staticmethod
@@ -652,6 +1257,7 @@ class QuotaKit:
             )
             return {
                 "status": row.status,
+                "session_status": row.session_status,
                 "consumed_units": row.consumed_units,
                 "usage_key": row.usage_key,
             }

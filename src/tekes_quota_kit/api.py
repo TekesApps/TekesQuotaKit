@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .admin import create_admin_router
 from .core import QuotaError, QuotaKit
 from .models import Client
 
@@ -24,7 +25,15 @@ class QuotaConfig(BaseModel):
 
 
 class ServiceConfig(BaseModel):
-    quota_code: str = Field(min_length=1, max_length=64)
+    quota_code: str | None = Field(default=None, min_length=1, max_length=64)
+    service_kind: Literal["atomic", "composite"] = "atomic"
+    redemption_mode: Literal["instant", "durable"] | None = None
+    charge_units: int | None = Field(default=None, gt=0)
+    session_ttl_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
+class ServiceMemberConfig(BaseModel):
+    max_uses: int | None = Field(default=None, gt=0, le=2147483647)
 
 
 class LimitConfig(BaseModel):
@@ -36,7 +45,9 @@ class LimitConfig(BaseModel):
 
 class AssignmentConfig(BaseModel):
     level_code: str = Field(min_length=1, max_length=64)
+    effective_at: datetime | None = None
     expires_at: datetime | None = None
+    renew_term: bool = False
 
 
 class IssueRequest(BaseModel):
@@ -45,18 +56,38 @@ class IssueRequest(BaseModel):
     request_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
+class RedeemRequest(BaseModel):
+    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    service_id: int | None = Field(default=None, gt=0)
+    service_code: str | None = Field(default=None, min_length=1, max_length=64)
+    request_key: str | None = Field(default=None, min_length=1, max_length=128)
+    duration_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
 class TokenRequest(BaseModel):
     token: str = Field(min_length=1)
 
 
 class SettleRequest(TokenRequest):
-    consumed_units: int = Field(ge=0)
+    consumed_units: int | None = Field(default=None, ge=0)
+
+
+class BeginRequest(BaseModel):
+    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    service_code: str = Field(min_length=1, max_length=64)
+    request_key: str = Field(min_length=1, max_length=128)
+    duration_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
+class UseRequest(TokenRequest):
+    child_service_code: str = Field(min_length=1, max_length=64)
+    request_key: str = Field(min_length=1, max_length=128)
 
 
 def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     if len(admin_key) < 32:
         raise ValueError("Admin key must be at least 32 characters")
-    app = FastAPI(title="TekesQuotaKit", version="0.1.0")
+    app = FastAPI(title="TekesQuotaKit", version="0.2.0")
 
     @app.exception_handler(QuotaError)
     async def quota_error(_request, exc: QuotaError):
@@ -105,8 +136,38 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     @app.put("/v1/admin/tenants/{tenant}/services/{service_code}", dependencies=[Depends(admin)])
     def put_service(tenant: str, service_code: str, payload: ServiceConfig) -> dict:
-        service_id = kit.put_service(tenant, service_code, payload.quota_code)
+        service_id = kit.put_service(
+            tenant,
+            service_code,
+            payload.quota_code,
+            kind=payload.service_kind,
+            redemption_mode=payload.redemption_mode,
+            charge_units=payload.charge_units,
+            session_ttl_seconds=payload.session_ttl_seconds,
+        )
         return {"service_id": service_id, "service_code": service_code}
+
+    @app.put(
+        "/v1/admin/tenants/{tenant}/services/{parent}/members/{child}",
+        dependencies=[Depends(admin)],
+    )
+    def put_service_member(
+        tenant: str, parent: str, child: str, payload: ServiceMemberConfig
+    ) -> dict:
+        kit.put_service_member(tenant, parent, child, payload.max_uses)
+        return {
+            "parent_service_code": parent,
+            "child_service_code": child,
+            "max_uses": payload.max_uses,
+        }
+
+    @app.delete(
+        "/v1/admin/tenants/{tenant}/services/{parent}/members/{child}",
+        dependencies=[Depends(admin)],
+    )
+    def delete_service_member(tenant: str, parent: str, child: str) -> dict:
+        kit.delete_service_member(tenant, parent, child)
+        return {"deleted": True}
 
     @app.put(
         "/v1/admin/tenants/{tenant}/levels/{level_code}/limits/{quota_code}",
@@ -131,8 +192,50 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         expiry = payload.expires_at
         if expiry is not None and expiry.tzinfo is not None:
             expiry = expiry.astimezone(UTC).replace(tzinfo=None)
-        kit.assign(tenant, subject_id, payload.level_code, expiry)
+        effective = payload.effective_at
+        if effective is not None and effective.tzinfo is not None:
+            effective = effective.astimezone(UTC).replace(tzinfo=None)
+        kit.assign(
+            tenant,
+            subject_id,
+            payload.level_code,
+            expiry,
+            effective_at=effective,
+            renew_term=payload.renew_term,
+        )
         return {"subject_id": subject_id, "level_code": payload.level_code}
+
+    @app.post("/v1/begin")
+    def begin(payload: BeginRequest, caller: Annotated[Client, Depends(provider)]) -> dict:
+        return kit.begin(
+            caller,
+            payload.subject_id,
+            payload.service_code,
+            payload.request_key,
+            payload.duration_seconds,
+        )
+
+    @app.post("/v1/use")
+    def use(
+        payload: UseRequest,
+        caller: Annotated[Client, Depends(provider)],
+        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+    ) -> dict:
+        return kit.use(
+            payload.token, caller, x_subject_id, payload.child_service_code, payload.request_key
+        )
+
+    @app.post("/v1/close")
+    def close(
+        payload: TokenRequest,
+        caller: Annotated[Client, Depends(provider)],
+        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+    ) -> dict:
+        return kit.close(payload.token, caller, x_subject_id)
+
+    @app.post("/v1/stop")
+    def stop(payload: TokenRequest, caller: Annotated[Client, Depends(provider)]) -> dict:
+        return kit.settle(payload.token, caller, None)
 
     @app.post("/v1/token")
     def issue(payload: IssueRequest, caller: Annotated[Client, Depends(issuer)]) -> dict:
@@ -140,10 +243,15 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     @app.post("/v1/redeem")
     def redeem(
-        payload: IssueRequest,
+        payload: RedeemRequest,
         caller: Annotated[Client, Depends(provider)],
     ) -> dict:
-        return kit.redeem(caller, payload.subject_id, payload.service_id, payload.request_key)
+        if (payload.service_id is None) == (payload.service_code is None):
+            raise HTTPException(status_code=400, detail="Provide exactly one Service identifier")
+        service = payload.service_id if payload.service_id is not None else payload.service_code
+        return kit.redeem(
+            caller, payload.subject_id, service, payload.request_key, payload.duration_seconds
+        )
 
     @app.post("/v1/token/settle")
     def settle(
@@ -179,4 +287,5 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
         return kit.unsettled(caller)
 
+    app.include_router(create_admin_router(kit, admin_key))
     return app
