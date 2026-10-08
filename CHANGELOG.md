@@ -8,6 +8,14 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The backup example in `docs/deployment.md` listed only the 11 tables from 0.2 and missed
+  `tq_admin_users`, `tq_admin_sessions`, `tq_admin_login_attempts` (0.3.0) and `tq_tenants`
+  (0.4.0). It now dumps the whole Kit database, or selects `tq_` tables at backup time. Tests now
+  fail if the backup commands hard-code table names or if the fresh-install DDL and the models
+  disagree on the set of tables.
+
 ### Added
 
 - Member sync: a `membership` client role and `/v1/members` endpoints to set or renew, read, end,

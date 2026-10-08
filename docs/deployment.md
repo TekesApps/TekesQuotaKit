@@ -273,13 +273,22 @@ For `reported_usage` Quotas, `POST /v1/token` only admits an operation; usage is
 
 ### Backups
 
-All state is in the `tq_` tables. Back them up with the rest of the schema, for example:
+All state is in the `tq_` tables (15 as of 0.4.0, including the console accounts and the business system registry). Do not hard-code the table list: new versions add tables, and a stale list silently drops them from the backup.
+
+If the Kit has its own database, dump the whole database:
 
 ```sh
-mysqldump --single-transaction --default-character-set=utf8mb4 your_app \
-  tq_clients tq_levels tq_quotas tq_limits tq_assignments tq_services \
-  tq_service_members tq_usage tq_tokens tq_token_items tq_ledger > tq-backup.sql
+mysqldump --single-transaction --default-character-set=utf8mb4 user_quota > tq-backup.sql
 ```
+
+If it shares your application's schema, select the tables by prefix at backup time:
+
+```sh
+tables=$(mysql -N -e "SHOW TABLES LIKE 'tq\_%'" your_app)
+mysqldump --single-transaction --default-character-set=utf8mb4 your_app $tables > tq-backup.sql
+```
+
+After a restore, check that every table is back: `SHOW TABLES LIKE 'tq\_%'` should list the same tables as `migrations/create_tables_mysql.sql`. Console sessions and login attempts may be dropped from a restore without harm; operators simply sign in again.
 
 `tq_ledger` records every `consume` and `refund` with its unit delta and is the audit trail for `tq_usage`. Always take a backup before applying a migration. Back up the token secret separately in your secret manager; a restored database is only fully usable with the same secret.
 
