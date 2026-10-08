@@ -116,6 +116,41 @@ def _validated_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
+# Both contracts carry the same rule, so the member-sync side and the Service side of a
+# business system are told the same thing: one user ID scheme, chosen by the business system.
+SUBJECT_ID_RULE = (
+    "One positive integer per person, chosen by the business system; member sync and every "
+    "Service request must send the same ID for the same person"
+)
+USER_ID_RULE = [
+    "## User ID rule (read first)",
+    "",
+    "Every request about a user carries that user's ID as `subject_id` (in the body) or",
+    "`X-Subject-ID` (in a header). Kit does not define or look up user IDs. The business",
+    "system chooses which ID to use, for example the primary key of its user table. The one",
+    "rule is that it is the same ID everywhere:",
+    "",
+    "- Member registration and every Service request (redeem, issue, use, settle, balance)",
+    "  must send the same ID for the same person. Kit matches them by this number only.",
+    "- Use exactly one kind of ID. Do not mix in an openid, phone number, member card number,",
+    "  or order ID in some places. Convert any other identifier to the chosen ID before",
+    "  calling Kit.",
+    "- The ID must be a positive integer, stable for the life of the account, and never",
+    "  reused for another person.",
+    "- If the member-sync side and the Service side are different services or teams, agree",
+    "  on this ID before going live.",
+    "",
+    "A mismatch is silent until a request is made: the user is registered as a member under",
+    "one ID, the Service request arrives with another, and Kit rejects it with HTTP 409",
+    "`no_level` as if the user were not a member.",
+    "",
+    "Check before go-live: register one test user through member sync, then make one Service",
+    "request with the same `subject_id`. Success means the IDs line up; `no_level` means they",
+    "do not.",
+    "",
+]
+
+
 def _client_guide(
     client_id: str,
     key: str,
@@ -134,6 +169,7 @@ def _client_guide(
         "role": config.role,
         "api_base_url": base,
         "client_key": key,
+        "subject_id_rule": SUBJECT_ID_RULE,
         "service_id": service.id,
         "service_kind": service.service_kind,
         "redemption_mode": service.redemption_mode,
@@ -155,6 +191,7 @@ def _client_guide(
         "Do not call admin APIs or use the Kit deployment's admin key or token secret.",
         "If this file is lost, ask an administrator to rotate the client; Kit stores only a hash.",
         "",
+        *USER_ID_RULE,
         "## Exact configuration values",
         "",
         "```json",
@@ -181,7 +218,8 @@ def _client_guide(
         "",
         "## Prerequisite: the user must be a member",
         "",
-        "Kit only admits a `subject_id` that holds an active Level in this business system.",
+        "Kit only admits a `subject_id` that holds an active Level in this business system, and",
+        "matches it to member registration by the ID rule above.",
         "Any other user is rejected with HTTP 409 `no_level`; treat that as \"not a member\".",
         "This client cannot add members. The business system keeps the member list in Kit",
         "through its separate member-sync client (role `membership`).",
@@ -301,6 +339,7 @@ def _membership_guide(
         "role": "membership",
         "api_base_url": base,
         "client_key": key,
+        "subject_id_rule": SUBJECT_ID_RULE,
         "levels": levels,
     }
     example_expiry = "2026-11-08T00:00:00+08:00"
@@ -317,6 +356,7 @@ def _membership_guide(
         "This credential can only manage members of this business system. It cannot call",
         "Services and cannot change rules.",
         "",
+        *USER_ID_RULE,
         "## Exact configuration values",
         "",
         "```json",
@@ -327,8 +367,8 @@ def _membership_guide(
         "",
         "## What to send",
         "",
-        "Send only users who hold a membership, not every user. `subject_id` is the same",
-        "positive integer user ID that the business system's Service clients send to Kit.",
+        "Send only users who hold a membership, not every user. `subject_id` follows the user",
+        "ID rule above: the same ID the Service clients send for that person.",
         "`expires_at` is ISO 8601 with a timezone offset, for example",
         f"`{example_expiry}`; omit it for a membership without an end date.",
         "",

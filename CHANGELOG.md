@@ -17,6 +17,9 @@ Before 1.0, minor versions may contain breaking changes.
   console offers the role as "会员同步".
 - Service client contracts now state that only users with an active Level are admitted and that
   others get 409 `no_level`.
+- Both kinds of client contract open with the same user ID rule, also carried as
+  `subject_id_rule` in their JSON: the business system picks one stable positive integer per
+  person and sends it in member sync and in every Service request, with a go-live self-check.
 
 ## [0.5.0] - 2026-10-08
 

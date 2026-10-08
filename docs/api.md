@@ -33,6 +33,8 @@ A client key whose role does not satisfy the endpoint is rejected exactly like a
 
 ### X-Subject-ID
 
+**One user ID per person, everywhere.** Kit never defines or looks up user IDs; the business system chooses which positive integer identifies a person, such as its user table's primary key. Member sync (`/v1/members`) and every Service request (`subject_id` in bodies, `X-Subject-ID` in headers) must send that same ID. Kit matches them by number only, so a member registered under one ID and served under another is rejected with 409 `no_level`. Both kinds of client contract open with this rule and carry it as `subject_id_rule`.
+
 `POST /v1/use`, `POST /v1/close`, `POST /v1/token/refund`, `POST /v1/token/status`, and `GET /v1/quota` require an `X-Subject-ID` header. Its value is the subject ID as decimal text, a positive integer no larger than 9223372036854775807 (2^63-1). A missing, zero, negative, non-numeric, or out-of-range value returns 422. For token operations the header must match the subject the token was created for, otherwise the call fails with `scope_mismatch` (403).
 
 Only your trusted backend should set this header, from its own authenticated session. Never let a browser or app supply it directly.

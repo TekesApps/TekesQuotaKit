@@ -163,3 +163,19 @@ def test_roles_cannot_cross_and_tenants_stay_separate(tmp_path):
     client.put("/v1/members/7", headers=sync, json={"level_code": "member", "renew_term": True})
     assert kit.membership(TENANT, 7)["level_code"] == "member"
     assert kit.membership("other-business", 7) is None
+
+
+def test_both_contracts_lead_with_the_same_user_id_rule(tmp_path):
+    _kit, client = setup(tmp_path)
+    member_guide, member_values = provision(client, "shukang-members", "membership")
+    service_guide, service_values = provision(client, "wecom-door", "consumer", "door_open")
+
+    def rule(guide: str) -> str:
+        return guide.split("## User ID rule (read first)")[1].split("\n## ")[0]
+
+    for guide in (member_guide, service_guide):
+        sections = [line for line in guide.splitlines() if line.startswith("## ")]
+        assert sections[1] == "## User ID rule (read first)"
+    assert rule(member_guide) == rule(service_guide)
+    assert "same ID everywhere" in rule(service_guide) and "no_level" in rule(service_guide)
+    assert member_values["subject_id_rule"] == service_values["subject_id_rule"]
