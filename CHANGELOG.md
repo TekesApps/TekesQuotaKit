@@ -8,17 +8,26 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-08
+
 ### Added
 
 - MIT license.
 - Public documentation: rewritten README, HTTP API reference (`docs/api.md`), deployment guide
   (`docs/deployment.md`), CONTRIBUTING.md, SECURITY.md, and this changelog.
 - GitHub Actions CI running pytest and ruff.
+- Private vulnerability reporting enabled on the repository.
 
 ### Changed
 
 - Examples and tests use a generic `demo-tenant` instead of a specific customer.
 - Chinese design documents moved to `docs/zh/`.
+- Version bumped to 0.2.1 in `pyproject.toml` and the FastAPI app metadata.
+
+### Fixed
+
+- Documentation now describes the real effect of changing `TEKES_QUOTA_TOKEN_SECRET`: issued
+  tokens keep working, but idempotent retries of earlier `request_key` values fail.
 
 ## [0.2.0] - 2026-09-29
 
@@ -55,6 +64,7 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/TekesApps/TekesQuotaKit/compare/f6296dc...v0.2.0
 [0.1.0]: https://github.com/TekesApps/TekesQuotaKit/tree/f6296dc
