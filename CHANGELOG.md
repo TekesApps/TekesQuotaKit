@@ -8,6 +8,12 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Require `pymysql[rsa]` so MySQL 8 `caching_sha2_password` accounts can connect without TLS.
+  Pin PyMySQL below 1.2.1, because 1.2.1 to 1.2.3 crash with `'NoneType' object has no attribute
+  'is_auth_switch_request'` on a cold full authentication.
+
 ## [0.2.1] - 2026-10-08
 
 ### Added
