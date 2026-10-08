@@ -253,13 +253,13 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'shukang-members' },
     { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步')], hint: '只能维护会员名单，不调用服务' },
     definitionField,
-    { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
+    { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ] : [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'wecom-door' },
     { name: 'service_code', label: 'Service', required: true, key: true, options: services },
     { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方')] },
     definitionField,
-    { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
+    { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ];
   return <section className="panel">
     <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>

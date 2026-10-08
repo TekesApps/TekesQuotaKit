@@ -10,6 +10,12 @@ Before 1.0, minor versions may contain breaking changes.
 
 ### Changed
 
+- When a contract's `api_base_url` is a loopback address, it now explains that this is the
+  business system's production server, not a developer's workstation, and how to develop locally.
+  The console's API address hint says the same.
+
+### Changed
+
 - The sidebar caption reads 配额管理平台 without the wide letter-spacing, and shows the console
   version, taken from `admin-web/package.json` at build time. A browser test checks both.
 
