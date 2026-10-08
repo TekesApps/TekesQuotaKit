@@ -9,6 +9,7 @@ This guide covers running TekesQuotaKit 0.2.0 in production: requirements, confi
 | Python | 3.12 or newer (`requires-python = ">=3.12"`) |
 | uv | Used to install dependencies from `uv.lock` and run the CLI |
 | MySQL | 8.x, accessed through PyMySQL (`mysql+pymysql://` URLs). Use the InnoDB engine and `utf8mb4`. |
+| PyMySQL | Pinned to `pymysql[rsa]>=1.1,<1.2.1`. The `rsa` extra installs `cryptography`, which MySQL 8's default `caching_sha2_password` needs on connections without TLS. PyMySQL 1.2.1 to 1.2.3 crash on the first full authentication of that kind. If you install outside `uv.lock`, keep this pin. |
 | SQLite | Supported by the code only for tests and local experiments. Do not use it in production. |
 
 The reviewed DDL in `migrations/create_tables_mysql.sql` does not specify `ENGINE` or `CHARSET`; tables inherit the defaults of the schema they are created in. On a stock MySQL 8 server that is InnoDB with `utf8mb4`. Check your schema defaults before applying it. InnoDB is required: correctness depends on row locks (`SELECT ... FOR UPDATE`), unique constraints, and foreign keys. Timestamps are stored as `DATETIME(6)` in UTC.

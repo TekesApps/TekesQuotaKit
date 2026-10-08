@@ -22,7 +22,8 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.117,<1",
-    "pymysql>=1.1,<2",
+    # 1.2.1+ crashes on a cold caching_sha2_password full auth over non-TLS connections.
+    "pymysql[rsa]>=1.1,<1.2.1",
     "sqlalchemy>=2.0,<3",
     "uvicorn>=0.35,<1",
 ]
