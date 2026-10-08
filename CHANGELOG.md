@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
 ### Added
 
 - `week` Limit period: a natural week from Monday 00:00 to the next Monday 00:00 in the Limit's
@@ -125,7 +127,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.1...v0.2.2
