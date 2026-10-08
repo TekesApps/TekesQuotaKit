@@ -8,6 +8,16 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Member sync: a `membership` client role and `/v1/members` endpoints to set or renew, read, end,
+  and batch-import members (up to 500 per call). A business system keeps Kit's member list with its
+  own credential instead of the admin key. Provisioning such a client downloads a
+  `tekes-quotakit-membership/v1` contract listing the assignable Levels and their Limits. The
+  console offers the role as "会员同步".
+- Service client contracts now state that only users with an active Level are admitted and that
+  others get 409 `no_level`.
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

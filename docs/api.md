@@ -27,6 +27,7 @@ Roles:
 | `issuer` | Endpoints that require `issuer` |
 | `provider` | Endpoints that require `provider` |
 | `consumer` | Both `issuer` and `provider` endpoints |
+| `membership` | Only the `/v1/members` endpoints. Not bound to a Service; `consumer` does not include it. |
 
 A client key whose role does not satisfy the endpoint is rejected exactly like an unknown key: 401 with code `unauthorized`.
 
@@ -133,6 +134,10 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | POST | `/v1/token/status` | client, `provider` + `X-Subject-ID` | Read a token's state. |
 | GET | `/v1/quota` | client, `issuer` + `X-Subject-ID` | Read the subject's balance for the client's Service. |
 | GET | `/v1/tokens/unsettled` | client, `provider` | List admitted, unsettled reported-usage tokens. |
+| PUT | `/v1/members/{subject_id}` | client, `membership` | Set or renew a member's Level. |
+| GET | `/v1/members/{subject_id}` | client, `membership` | Read a member's current Level, or `null`. |
+| DELETE | `/v1/members/{subject_id}` | client, `membership` | End a membership now. |
+| POST | `/v1/members/batch` | client, `membership` | Set up to 500 members in one call. |
 | POST | `/v1/begin` | client, `provider` | Legacy alias: open a durable session (`request_key` required). |
 | POST | `/v1/close` | client, `provider` + `X-Subject-ID` | Legacy alias: close a durable session. |
 | PUT | `/v1/admin/clients/{client_id}` | admin | Create or replace a client with a caller-supplied key. |
@@ -400,6 +405,34 @@ Role: `provider`. Opens a durable session. Body: `subject_id` (strict integer), 
 ### POST /v1/close (legacy)
 
 Role: `provider`. Header: `X-Subject-ID`. Body: `{"token": "tq_..."}`. Closes a durable session opened by the same client. Response: `{"session_status": "closed", "idempotent": false}` (or `expired` if already past expiry; `"idempotent": true` if already closed). A token without a session returns `wrong_service_kind`. New integrations should use `/v1/stop`.
+
+## Member sync endpoints
+
+A business system keeps Kit's member list in step with its own memberships through one `membership` client. Issue it with `POST /v1/admin/clients/{client_id}/provision` and `"role": "membership"`; `service_code` is ignored and stored as `*`. The downloaded contract (`tekes-quotakit-membership/v1`) lists the Levels the client may assign and the Limits each grants. All calls act on the client's own tenant.
+
+Send only users who hold a membership. A user without an active Level is rejected by every Service with 409 `no_level`.
+
+### PUT /v1/members/{subject_id}
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `level_code` | string | yes | An existing Level of the tenant, else 404 `unknown_level`. |
+| `expires_at` | datetime | no | ISO 8601 with offset. Omit for no end date. Must be in the future, else 400 `invalid_expiry`. |
+| `renew_term` | bool | no, default `false` | `true` for a real purchase or renewal: starts a new term and allows a new expiry. With `false`, a different expiry for an active member returns 400 `term_change_requires_renewal`. |
+
+The membership takes effect now. Response: `{"subject_id": 42, "member": {"level_code", "effective_at", "expires_at", "term_start", "term_end"}}`. Re-sending the current state is safe.
+
+### GET /v1/members/{subject_id}
+
+Response: `{"subject_id": 42, "member": null}` when the user has no active Level, otherwise the same `member` object as above.
+
+### DELETE /v1/members/{subject_id}
+
+Ends the active membership now by closing its record; history is kept. Response: `{"subject_id": 42, "ended": true}`, or `false` when nothing was active, so it is safe to repeat. A membership that reaches `expires_at` ends by itself.
+
+### POST /v1/members/batch
+
+Body `{"items": [...]}` with 1 to 500 items, each `{"subject_id", "level_code", "expires_at", "renew_term"}`. Items are applied one by one; a failure does not undo the others. Response: `{"total": n, "failed": k, "results": [{"subject_id", "ok", "code"?, "message"?}]}`. Intended for the one-time import of existing members.
 
 ## Admin configuration endpoints
 

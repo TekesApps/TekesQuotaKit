@@ -16,7 +16,7 @@ TekesQuotaKit is a small FastAPI + SQLAlchemy service that acts as a shared enti
 | **Level** | A tier assigned to a subject, such as `regular` or `premium`. |
 | **Limit** | For one Level and one Quota: `finite` with a `limit_value`, or `unlimited`, over a period of `day`, `week` (Monday 00:00 to Monday 00:00), `month`, or `level_term`, computed in the Limit's timezone. |
 | **Assignment** | Links a subject (positive integer `subject_id`, scoped by tenant) to a Level, with optional `effective_at`, `expires_at`, and `renew_term`. |
-| **Client credential** | A long random key bound to one tenant, one Service, and one role (`issuer`, `provider`, or `consumer`). Only its SHA-256 hash is stored. |
+| **Client credential** | A long random key bound to one tenant and one role. `issuer`, `provider`, and `consumer` credentials are bound to one Service. A `membership` credential is bound to no Service and only maintains the member list through `/v1/members`. Only the key's SHA-256 hash is stored. |
 | **Token** | Created per subject and request by `redeem` or `token`; used for settlement, use, stop, refund, and status. |
 | **Ledger** | Append-only record of every `consume` and `refund` event. |
 

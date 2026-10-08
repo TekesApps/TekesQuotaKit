@@ -20,7 +20,7 @@ from .admin_auth import (
     cookie_path,
     cookie_secure,
 )
-from .core import QuotaKit, utc_now
+from .core import MEMBERSHIP_ROLE, QuotaKit, utc_now
 from .models import (
     Assignment,
     Client,
@@ -94,8 +94,9 @@ class LoginRequest(BaseModel):
 
 class ProvisionRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64)
-    service_code: str = Field(min_length=1, max_length=64)
-    role: str = Field(pattern=r"^(issuer|provider|consumer)$")
+    # Ignored for the `membership` role, which is not bound to a Service.
+    service_code: str = Field(default="", max_length=64)
+    role: str = Field(pattern=r"^(issuer|provider|consumer|membership)$")
     base_url: str = Field(min_length=8, max_length=512)
     rotate: bool = False
 
@@ -178,6 +179,13 @@ def _client_guide(
         "| `child_service_code` | A code from that token's `authorized_services` |",
         "| `duration_seconds` | Optional 60–86400 seconds chosen by the client backend |",
         "",
+        "## Prerequisite: the user must be a member",
+        "",
+        "Kit only admits a `subject_id` that holds an active Level in this business system.",
+        "Any other user is rejected with HTTP 409 `no_level`; treat that as \"not a member\".",
+        "This client cannot add members. The business system keeps the member list in Kit",
+        "through its separate member-sync client (role `membership`).",
+        "",
         "## Permitted flow",
         "",
     ]
@@ -242,6 +250,163 @@ def _client_guide(
             "",
         ]
     )
+    return "\n".join(lines)
+
+
+def _download(client_id: str, guide: str) -> Response:
+    return Response(
+        guide,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            **NO_STORE,
+            "Content-Disposition": f'attachment; filename="{client_id}-quotakit.md"',
+        },
+    )
+
+
+def _levels(kit: QuotaKit, tenant: str) -> list[dict]:
+    """Levels of a business system with the Limits each grants, for the member-sync contract."""
+    with kit.sessions() as db:
+        limits = db.scalars(select(Limit).where(Limit.tenant_id == tenant)).all()
+        return [
+            {
+                "level_code": code,
+                "limits": [
+                    {
+                        "quota_code": limit.quota_code,
+                        "limit_mode": limit.limit_mode,
+                        "limit_value": limit.limit_value,
+                        "period_kind": limit.period_kind,
+                        "timezone": limit.timezone,
+                    }
+                    for limit in limits
+                    if limit.level_code == code
+                ],
+            }
+            for code in db.scalars(
+                select(Level.level_code).where(Level.tenant_id == tenant).order_by(Level.level_code)
+            )
+        ]
+
+
+def _membership_guide(
+    client_id: str, key: str, tenant_id: str, base_url: str, levels: list[dict]
+) -> str:
+    """Integration contract for a member-sync client, which maintains subject Levels."""
+    base = _validated_base_url(base_url)
+    values = {
+        "schema": "tekes-quotakit-membership/v1",
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "role": "membership",
+        "api_base_url": base,
+        "client_key": key,
+        "levels": levels,
+    }
+    example_expiry = "2026-11-08T00:00:00+08:00"
+    lines = [
+        f"# TekesQuotaKit member sync: {client_id}",
+        "",
+        "## Instructions for the client agent",
+        "",
+        "This is the complete contract for one member-sync credential. With it the business",
+        "system keeps Kit's member list in step with its own memberships. Kit admits a user to",
+        "a Service only while the user holds an active Level here.",
+        "Move `client_key` into the trusted backend's secret store or environment.",
+        "Never commit this file or key, echo it in logs, or expose it to a browser or miniapp.",
+        "This credential can only manage members of this business system. It cannot call",
+        "Services and cannot change rules.",
+        "",
+        "## Exact configuration values",
+        "",
+        "```json",
+        json.dumps(values, ensure_ascii=False, indent=2, default=str),
+        "```",
+        "",
+        "`levels` lists the Level codes you may assign and the Limits each one grants.",
+        "",
+        "## What to send",
+        "",
+        "Send only users who hold a membership, not every user. `subject_id` is the same",
+        "positive integer user ID that the business system's Service clients send to Kit.",
+        "`expires_at` is ISO 8601 with a timezone offset, for example",
+        f"`{example_expiry}`; omit it for a membership without an end date.",
+        "",
+        "`renew_term` marks a real purchase or renewal. Set it to `true` on those events. It",
+        "starts a new membership term and lets `expires_at` change. Use `false` when you only",
+        "re-send the current state, for example during reconciliation. If a `false` request",
+        "returns 400 `term_change_requires_renewal`, the expiry differs from Kit's, which means",
+        "a renewal happened; send it again with `true`.",
+        "",
+        "Every call takes `Authorization: Bearer <client_key>`.",
+        "",
+        "## 1. Initial import, once at go-live",
+        "",
+        f"`POST {base}/v1/members/batch`, at most 500 items per call:",
+        "",
+        "```json",
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "subject_id": 42,
+                        "level_code": levels[0]["level_code"] if levels else "member",
+                        "expires_at": example_expiry,
+                        "renew_term": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "```",
+        "",
+        "The response is `{\"total\": n, \"failed\": k, \"results\": [...]}`, one result per",
+        "item with `ok`, and `code` and `message` when it failed. Items are applied one by one,",
+        "so a failure does not undo the others. Fix and resend only the failed items.",
+        "",
+        "## 2. On membership purchase or renewal",
+        "",
+        f"`PUT {base}/v1/members/{{subject_id}}`",
+        "",
+        "```json",
+        json.dumps(
+            {
+                "level_code": levels[0]["level_code"] if levels else "member",
+                "expires_at": example_expiry,
+                "renew_term": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "```",
+        "",
+        "The response returns the member's current Level, start, and expiry.",
+        "",
+        "## 3. On refund, cancellation, or account deletion",
+        "",
+        f"`DELETE {base}/v1/members/{{subject_id}}` ends the membership now. The response",
+        "`ended` is `true` if a membership was active and `false` if there was none, so the",
+        "call is safe to repeat. History is kept. A membership that simply expires needs no call.",
+        "",
+        "## 4. Checking one member",
+        "",
+        f"`GET {base}/v1/members/{{subject_id}}` returns `member: null` when the user has no",
+        "active Level, otherwise the Level, start, and expiry. Use it for reconciliation.",
+        "",
+        "## Errors",
+        "",
+        "| Status | Code | Meaning |",
+        "| --- | --- | --- |",
+        "| 401 | `unauthorized` | Wrong key, or the key is not a member-sync credential |",
+        "| 404 | `unknown_level` | `level_code` is not one of the Levels above |",
+        "| 400 | `invalid_expiry` | `expires_at` is not after now |",
+        "| 400 | `term_change_requires_renewal` | Expiry changed without `renew_term: true` |",
+        "| 422 | (validation) | Malformed body or `subject_id` |",
+        "",
+        "Retry on network errors with the same body; all calls are safe to repeat.",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -384,10 +549,10 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
 
     @router.post("/v1/admin/clients/{client_id}/provision", dependencies=[Depends(authenticate)])
     def provision(client_id: str, config: ProvisionRequest) -> Response:
-        if not all(
-            SAFE_CODE.fullmatch(value)
-            for value in (client_id, config.tenant_id, config.service_code)
-        ):
+        codes = [client_id, config.tenant_id]
+        if config.role != MEMBERSHIP_ROLE:
+            codes.append(config.service_code)
+        if not all(SAFE_CODE.fullmatch(value) for value in codes):
             raise HTTPException(
                 status_code=400,
                 detail="Codes may contain letters, numbers, dot, dash, underscore",
@@ -401,6 +566,11 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             rotate=config.rotate,
         )
         config.base_url = base
+        if service is None:
+            levels = _levels(kit, config.tenant_id)
+            return _download(
+                client_id, _membership_guide(client_id, key, config.tenant_id, base, levels)
+            )
         with kit.sessions() as db:
             quota = db.scalar(
                 select(Quota).where(
@@ -423,14 +593,8 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                     .order_by(ServiceMember.child_service_code)
                 )
             ]
-        guide = _client_guide(client_id, key, config, service, metering_mode, members)
-        return Response(
-            guide,
-            media_type="text/markdown; charset=utf-8",
-            headers={
-                **NO_STORE,
-                "Content-Disposition": f'attachment; filename="{client_id}-quotakit.md"',
-            },
+        return _download(
+            client_id, _client_guide(client_id, key, config, service, metering_mode, members)
         )
 
     return router
