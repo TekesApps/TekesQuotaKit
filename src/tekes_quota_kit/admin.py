@@ -167,6 +167,26 @@ def _user_id_rule(definition: str) -> list[str]:
     ]
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _base_url_note(base: str) -> list[str]:
+    """Spell out that a loopback `api_base_url` is the production server's, not a workstation's."""
+    host = (urlsplit(base).hostname or "").lower()
+    if host not in LOOPBACK_HOSTS and not host.startswith("127."):
+        return []
+    return [
+        "",
+        f"**About `api_base_url` ({base}).** This is a loopback address on the business",
+        "system's production server, where Kit runs next to the business backend. Only a",
+        "process on that same server can reach it. It is not the `127.0.0.1` of a developer's",
+        "workstation: calling it from a laptop reaches nothing, or whatever happens to listen",
+        "there. Deploy the code that uses this credential on that production server. For local",
+        "development, run your own Kit instance or ask the administrator for a test environment",
+        "address; do not expose the production Kit to the internet to make local calls work.",
+    ]
+
+
 def _client_guide(
     client_id: str,
     key: str,
@@ -215,6 +235,7 @@ def _client_guide(
         "```json",
         json.dumps(values, ensure_ascii=False, indent=2),
         "```",
+        *_base_url_note(base),
         "",
         "`client_key` is the HTTP Bearer credential. It is not a use token.",
         "A use token is returned by `redeem` or `issue` for one subject and operation.",
@@ -417,6 +438,7 @@ def _membership_guide(
         "```json",
         json.dumps(values, ensure_ascii=False, indent=2, default=str),
         "```",
+        *_base_url_note(base),
         "",
         "`levels` lists the Level codes you may assign and the Limits each one grants.",
         "",

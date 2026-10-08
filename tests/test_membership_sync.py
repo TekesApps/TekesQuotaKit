@@ -243,3 +243,22 @@ def test_deleting_a_client_revokes_its_key_within_its_business_system(tmp_path):
     assert client.post("/v1/redeem", headers=use, json=body).status_code == 401
     again = client.delete(f"/v1/admin/tenants/{TENANT}/clients/wecom-door-test", headers=ADMIN)
     assert again.status_code == 404 and again.json()["code"] == "unknown_client"
+
+
+def test_contracts_explain_a_loopback_base_url(tmp_path):
+    _kit, client = setup(tmp_path)
+    for client_id, role, service in (("m", "membership", ""), ("d", "consumer", "door_open")):
+        guide, values = provision(client, client_id, role, service)
+        assert values["api_base_url"] == "http://127.0.0.1:9460"
+        assert "production server" in guide and "not the `127.0.0.1` of a developer" in guide
+    public = client.post(
+        "/v1/admin/clients/p/provision",
+        headers=ADMIN,
+        json={
+            "tenant_id": TENANT,
+            "role": "membership",
+            "base_url": "https://quota.example.com",
+            "subject_id_definition": DEFINITION,
+        },
+    )
+    assert public.status_code == 200 and "production server" not in public.text
