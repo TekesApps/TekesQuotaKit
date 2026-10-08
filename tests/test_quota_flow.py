@@ -18,13 +18,13 @@ SECRET = "token-secret-for-local-test-only-00001"
 def configured(tmp_path, *, mode: str, limit: int) -> tuple[QuotaKit, TestClient, int]:
     kit = QuotaKit(f"sqlite:///{tmp_path / 'quota.db'}", SECRET)
     Base.metadata.create_all(kit.engine)
-    kit.put_quota("shukang-zhiyi", "example", "use" if mode == "per_use" else "model_token", mode)
-    service_id = kit.put_service("shukang-zhiyi", "example.run", "example")
-    kit.put_level("shukang-zhiyi", "regular")
-    kit.put_limit("shukang-zhiyi", "regular", "example", "finite", limit, "month", "Asia/Shanghai")
-    kit.assign("shukang-zhiyi", 42, "regular")
-    kit.put_client("issuer", ISSUER_KEY, "shukang-zhiyi", "example.run", "issuer")
-    kit.put_client("provider", PROVIDER_KEY, "shukang-zhiyi", "example.run", "provider")
+    kit.put_quota("demo-tenant", "example", "use" if mode == "per_use" else "model_token", mode)
+    service_id = kit.put_service("demo-tenant", "example.run", "example")
+    kit.put_level("demo-tenant", "regular")
+    kit.put_limit("demo-tenant", "regular", "example", "finite", limit, "month", "Asia/Shanghai")
+    kit.assign("demo-tenant", 42, "regular")
+    kit.put_client("issuer", ISSUER_KEY, "demo-tenant", "example.run", "issuer")
+    kit.put_client("provider", PROVIDER_KEY, "demo-tenant", "example.run", "provider")
     return kit, TestClient(create_app(kit, ADMIN_KEY)), service_id
 
 
@@ -193,13 +193,13 @@ def test_subject_id_is_numeric_and_positive(tmp_path):
         )
         assert response.status_code == 422
     with pytest.raises(QuotaError, match="positive integer"):
-        kit.assign("shukang-zhiyi", "42", "regular")
+        kit.assign("demo-tenant", "42", "regular")
 
 
 def test_consumer_needs_one_call_to_redeem_per_use(tmp_path):
     kit, client, service_id = configured(tmp_path, mode="per_use", limit=2)
     key = "consumer-key-for-local-test-only-0001"
-    kit.put_client("consumer", key, "shukang-zhiyi", "example.run", "consumer")
+    kit.put_client("consumer", key, "demo-tenant", "example.run", "consumer")
     headers = {"Authorization": f"Bearer {key}", "X-Subject-ID": "42"}
     payload = {"subject_id": 42, "service_id": service_id}
     first = client.post("/v1/redeem", headers=headers, json=payload)
@@ -207,7 +207,7 @@ def test_consumer_needs_one_call_to_redeem_per_use(tmp_path):
     assert first.status_code == second.status_code == 200
     assert first.json()["token"] != second.json()["token"]
     assert kit.balance(kit.client(key, "issuer"), 42)["used"] == 2
-    other_service_id = kit.put_service("shukang-zhiyi", "other.service", "example")
+    other_service_id = kit.put_service("demo-tenant", "other.service", "example")
     forbidden = client.post(
         "/v1/redeem", headers=headers, json={"subject_id": 42, "service_id": other_service_id}
     )
@@ -219,7 +219,7 @@ def test_invalid_limit_configuration(tmp_path):
     kit, _, _ = configured(tmp_path, mode="per_use", limit=1)
     with pytest.raises(QuotaError, match="Invalid limit value"):
         kit.put_limit(
-            "shukang-zhiyi", "regular", "example", "unlimited", 0, "month", "Asia/Shanghai"
+            "demo-tenant", "regular", "example", "unlimited", 0, "month", "Asia/Shanghai"
         )
     with pytest.raises(QuotaError, match="cannot be changed in place"):
-        kit.put_quota("shukang-zhiyi", "example", "model_token", "reported_usage")
+        kit.put_quota("demo-tenant", "example", "model_token", "reported_usage")

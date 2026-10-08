@@ -1,10 +1,12 @@
 # 组合 Service 与测量示例
 
-本文描述 2026-09-28 的实现。以下会员数值与测量项目代码是配置示例，生产值需要和业务记录核对。Kit 统一管理 Level、Quota、Limit、Service、组合成员和计次规则；可信业务后端提供已认证用户、目标 Service 与稳定的请求 ID。`instant` 凭证在 `redeem` 时完成；`durable` 凭证由 `redeem` 开启，期间每次 `use` 校验项目，可选超时，最终由 `stop` 结束。
+> 说明：本文为设计笔记。公开的权威参考以英文 [README](../../README.md) 与 [docs/api.md](../api.md) 为准。
+
+本文描述当前版本（0.2.x）的实现。以下会员数值与测量项目代码是配置示例，生产值需要和业务记录核对。Kit 统一管理 Level、Quota、Limit、Service、组合成员和计次规则；可信业务后端提供已认证用户、目标 Service 与稳定的请求 ID。`instant` 凭证在 `redeem` 时完成；`durable` 凭证由 `redeem` 开启，期间每次 `use` 校验项目，可选超时，最终由 `stop` 结束。
 
 ## 从零配置
 
-Kit 共 11 张表：原有 `tq_clients`、`tq_levels`、`tq_quotas`、`tq_services`、`tq_limits`、`tq_assignments`、`tq_usage`、`tq_tokens`、`tq_ledger`，新增 `tq_service_members` 和 `tq_token_items`。所有表都有整数主键 `id`。在租户 `shukang-zhiyi` 下，以用户 42 的基础会员每个会期可开始两场测量为例：
+Kit 共 11 张表：原有 `tq_clients`、`tq_levels`、`tq_quotas`、`tq_services`、`tq_limits`、`tq_assignments`、`tq_usage`、`tq_tokens`、`tq_ledger`，新增 `tq_service_members` 和 `tq_token_items`。所有表都有整数主键 `id`。在租户 `demo-tenant` 下，以用户 42 的基础会员每个会期可开始两场测量为例：
 
 1. `tq_quotas` 增加 `quota_code=measurement_count`、`unit_code=use`、`metering_mode=per_use`。
 2. `tq_levels` 增加 `level_code=basic`。
@@ -47,4 +49,4 @@ Kit 共 11 张表：原有 `tq_clients`、`tq_levels`、`tq_quotas`、`tq_servic
 
 从整场模式切换时，先停止新整场准入：删除父 Service 的六条成员配置，并把父 Service 改为不带 Quota 的原子 Service。已经 `redeem` 的旧持续凭证仍依照 `tq_token_items` 快照核销，直到 `stop` 或超时；新的项目调用则按各自 Quota 扣费。切换窗口内可能同时存在两套有效凭证，需要业务后端按会话创建时间选择调用路径并完成对账。每个 Service 仍需要独立凭据，因此“业务只用同一凭据处理所有项目”的最简接口尚未实现。
 
-生产接入需核对真实项目、会员权益、旧测量扣费入口、设备成功事件及历史额度转换。切换时必须停用旧 `resident_entitlements.measure_used` 扣费路径，避免双重计费。新建库 DDL 与旧库升级 SQL 分别见 `migrations/create_tables_mysql.sql`、`migrations/add_composite_services_mysql.sql`；`init-schema` 不修改旧表。
+生产接入需核对真实项目、会员权益、旧测量扣费入口、设备成功事件及历史额度转换。切换时必须停用旧系统的扣费计数器，避免双重计费。新建库 DDL 与旧库升级 SQL 分别见 [`migrations/create_tables_mysql.sql`](../../migrations/create_tables_mysql.sql)、[`migrations/add_composite_services_mysql.sql`](../../migrations/add_composite_services_mysql.sql)；`init-schema` 不修改旧表。

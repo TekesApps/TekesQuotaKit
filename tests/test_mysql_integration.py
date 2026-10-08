@@ -25,22 +25,22 @@ def test_mysql_atomic_redeem_and_reported_settlement():
         assert next(column for column in schema.get_columns(table) if column["name"] == "id")[
             "autoincrement"
         ]
-    kit.put_quota("first-consumer", "visits", "use", "per_use")
-    visit_id = kit.put_service("first-consumer", "visit", "visits")
-    kit.put_level("first-consumer", "regular")
-    kit.put_limit("first-consumer", "regular", "visits", "finite", 1, "month", "Asia/Shanghai")
-    kit.assign("first-consumer", 42, "regular")
+    kit.put_quota("demo-tenant", "visits", "use", "per_use")
+    visit_id = kit.put_service("demo-tenant", "visit", "visits")
+    kit.put_level("demo-tenant", "regular")
+    kit.put_limit("demo-tenant", "regular", "visits", "finite", 1, "month", "Asia/Shanghai")
+    kit.assign("demo-tenant", 42, "regular")
     kit.put_client(
         "mysql-issuer",
         "mysql-issuer-key-with-at-least-32-characters",
-        "first-consumer",
+        "demo-tenant",
         "visit",
         "issuer",
     )
     kit.put_client(
         "mysql-provider",
         "mysql-provider-key-with-at-least-32-characters",
-        "first-consumer",
+        "demo-tenant",
         "visit",
         "provider",
     )
@@ -65,20 +65,20 @@ def test_mysql_atomic_redeem_and_reported_settlement():
     ]
     assert kit.balance(issuer, 42)["used"] == 1
 
-    kit.put_quota("first-consumer", "model", "model_token", "reported_usage")
-    chat_id = kit.put_service("first-consumer", "chat", "model")
-    kit.put_limit("first-consumer", "regular", "model", "finite", 10, "month", "Asia/Shanghai")
+    kit.put_quota("demo-tenant", "model", "model_token", "reported_usage")
+    chat_id = kit.put_service("demo-tenant", "chat", "model")
+    kit.put_limit("demo-tenant", "regular", "model", "finite", 10, "month", "Asia/Shanghai")
     kit.put_client(
         "chat-issuer",
         "chat-issuer-key-with-at-least-32-characters",
-        "first-consumer",
+        "demo-tenant",
         "chat",
         "issuer",
     )
     kit.put_client(
         "chat-provider",
         "chat-provider-key-with-at-least-32-characters",
-        "first-consumer",
+        "demo-tenant",
         "chat",
         "provider",
     )

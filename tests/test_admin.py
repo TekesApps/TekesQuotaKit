@@ -13,7 +13,7 @@ from tekes_quota_kit.models import Base, Client
 
 ADMIN_KEY = "admin-management-key-for-tests-0000000001"
 TOKEN_SECRET = "admin-token-secret-for-tests-0000000001"
-TENANT = "shukang-zhiyi"
+TENANT = "demo-tenant"
 
 
 def setup(tmp_path):

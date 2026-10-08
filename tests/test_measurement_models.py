@@ -11,7 +11,7 @@ from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, utc_now
 from tekes_quota_kit.models import Base, Ledger, Token, TokenItem, Usage
 
-TENANT = "shukang-zhiyi"
+TENANT = "demo-tenant"
 SUBJECT = 42
 ADMIN_KEY = "measurement-model-admin-key-for-tests-001"
 SECRET = "measurement-model-token-secret-for-tests-01"

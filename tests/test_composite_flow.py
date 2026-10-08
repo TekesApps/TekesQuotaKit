@@ -13,7 +13,7 @@ from tekes_quota_kit.models import Assignment, Base, Service, ServiceMember, Tok
 ADMIN_KEY = "composite-admin-key-for-local-tests-0001"
 CLIENT_KEY = "composite-client-key-for-local-tests-001"
 SECRET = "composite-token-secret-for-local-tests-01"
-TENANT = "shukang-zhiyi"
+TENANT = "demo-tenant"
 
 
 def configured(tmp_path, *, limit: int = 2, ttl: int | None = 3600):

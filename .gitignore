@@ -6,3 +6,6 @@ __pycache__/
 .env
 *.egg-info/
 dist/
+.DS_Store
+# Client integration contracts downloaded from /admin contain plaintext keys
+*-quotakit.md
