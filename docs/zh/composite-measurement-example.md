@@ -45,7 +45,7 @@ Kit 共 11 张表：原有 `tq_clients`、`tq_levels`、`tq_quotas`、`tq_servic
 
 普通 `instant` 按次 Service 用 `redeem(subject_id, service_code 或 service_id, request_key)` 一次准入、扣费并完成；按实际用量 Service 继续用 `issue` 准入、`settle` 报告真实用量。组合 `durable` Service 用 `redeem`/多次 `use`/`stop`，不把六项分别 `redeem`，也不依赖共享 `quota_code` 合并六次请求。
 
-若以后改为每项独立额度，需要为六个子 Service 分别配置 `blood_pressure_count`、`blood_oxygen_count`、`body_temperature_count`、`body_composition_count`、`body_circumference_count`、`ecg_count` 六个按次 Quota，并为同一 Level 分别配置六条 Limit。将每个原子 Service 的 `quota_code` 改为对应 Quota。当前接口要求每项另配一条绑定该 Service 的 `tq_clients` 凭据；业务端使用对应凭据和稳定 `service_code` 分别调用 `POST /v1/redeem`。每次只扣该项目的额度，某项目耗尽不影响其他项目。
+若以后改为每项独立配额，需要为六个子 Service 分别配置 `blood_pressure_count`、`blood_oxygen_count`、`body_temperature_count`、`body_composition_count`、`body_circumference_count`、`ecg_count` 六个按次 Quota，并为同一 Level 分别配置六条 Limit。将每个原子 Service 的 `quota_code` 改为对应 Quota。当前接口要求每项另配一条绑定该 Service 的 `tq_clients` 凭据；业务端使用对应凭据和稳定 `service_code` 分别调用 `POST /v1/redeem`。每次只扣该项目的额度，某项目耗尽不影响其他项目。
 
 从整场模式切换时，先停止新整场准入：删除父 Service 的六条成员配置，并把父 Service 改为不带 Quota 的原子 Service。已经 `redeem` 的旧持续凭证仍依照 `tq_token_items` 快照核销，直到 `stop` 或超时；新的项目调用则按各自 Quota 扣费。切换窗口内可能同时存在两套有效凭证，需要业务后端按会话创建时间选择调用路径并完成对账。每个 Service 仍需要独立凭据，因此“业务只用同一凭据处理所有项目”的最简接口尚未实现。
 

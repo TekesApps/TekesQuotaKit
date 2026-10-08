@@ -153,7 +153,9 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | PUT | `/v1/admin/tenants/{tenant}/levels/{level_code}/limits/{quota_code}` | admin | Create or update a Limit. |
 | PUT | `/v1/admin/tenants/{tenant}/subjects/{subject_id}/level` | admin | Assign a subject to a Level. |
 | GET | `/v1/admin/tables` | admin | List browsable table names. |
-| GET | `/v1/admin/tables/{name}` | admin | Browse rows of one `tq_` table for one tenant. |
+| GET | `/v1/admin/tables/{name}` | admin | Browse rows of one `tq_` table for one tenant. Extra query parameters filter by exact match on visible columns, e.g. `?tenant=t&subject_id=42`; integer columns need integers; unknown or hidden columns return 400. |
+| GET | `/v1/admin/tenants/{tenant}/subjects/{subject_id}/usage` | admin | A user's Level and, for each 配额 it grants, `limit`, `used`, `remaining`, `period_end`, and the Services that use it. `member: null` if the user has no active Level. |
+| GET | `/v1/admin/tenants/{tenant}/overview` | admin | Counts of Services, Levels, clients, and `active_members` (people with an active Level now). |
 | POST | `/v1/admin/session/login` | none (guard header) | Sign in to the web admin; sets the session cookie. |
 | GET | `/v1/admin/session` | admin | Current account (`username`, `expires_at`, `via`). |
 | POST | `/v1/admin/session/logout` | admin | Revoke the session and clear the cookie. |

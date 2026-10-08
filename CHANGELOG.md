@@ -8,6 +8,23 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Search on every console page by its key columns (for example user ID, Service, 配额, Level,
+  Client ID, request key), backed by exact-match filters on `GET /v1/admin/tables/{name}`: any
+  visible column can be passed as a query parameter.
+- Per-user usage: `GET /v1/admin/tenants/{tenant}/subjects/{subject_id}/usage` returns the user's
+  Level and, for every 配额 it grants, the 额度, this period's usage, what remains, and when it
+  resets, computed as admission does. Searching 用量 by user ID shows it as a card.
+- `GET /v1/admin/tenants/{tenant}/overview`; the header card 当前会员 counts people with an active
+  Level instead of assignment rows, which grow with every renewal.
+- The Level page shows how many 等级额度 each Level has; clicking opens 等级额度 filtered to it.
+
+### Changed
+
+- Terminology: Quota is 配额 (what is counted) and the Limit page is 等级额度 (how much each Level
+  may use per period); 额度 now names only amounts. Console and Chinese design notes follow.
+
 ## [0.7.3] - 2026-10-08
 
 ### Changed

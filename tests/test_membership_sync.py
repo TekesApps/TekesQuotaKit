@@ -262,3 +262,70 @@ def test_contracts_explain_a_loopback_base_url(tmp_path):
         },
     )
     assert public.status_code == 200 and "production server" not in public.text
+
+
+def test_overview_counts_current_members_not_history_rows(tmp_path):
+    kit, client = setup(tmp_path)
+    _, members = provision(client, "shukang-members", "membership")
+    sync = {"Authorization": f"Bearer {members['client_key']}"}
+    for days in (10, 20, 30):  # one person, renewed twice: three assignment rows
+        client.put(
+            "/v1/members/1",
+            headers=sync,
+            json={"level_code": "member", "expires_at": later(days), "renew_term": True},
+        )
+    client.put("/v1/members/2", headers=sync, json={"level_code": "member", "renew_term": True})
+    client.put("/v1/members/3", headers=sync, json={"level_code": "member", "renew_term": True})
+    client.delete("/v1/members/3", headers=sync)
+    overview = client.get(f"/v1/admin/tenants/{TENANT}/overview", headers=ADMIN).json()
+    assert overview == {"services": 1, "levels": 1, "clients": 1, "active_members": 2}
+    rows = client.get(
+        "/v1/admin/tables/tq_assignments", headers=ADMIN, params={"tenant": TENANT}
+    ).json()["total"]
+    assert rows == 5
+
+
+def test_subject_usage_summary_and_table_filters(tmp_path):
+    _kit, client = setup(tmp_path)
+    _, members = provision(client, "shukang-members", "membership")
+    _, door = provision(client, "wecom-door", "consumer", "door_open")
+    sync = {"Authorization": f"Bearer {members['client_key']}"}
+    use = {"Authorization": f"Bearer {door['client_key']}"}
+    for subject in (42, 43):
+        client.put(
+            f"/v1/members/{subject}",
+            headers=sync,
+            json={"level_code": "member", "renew_term": True},
+        )
+    for key in ("a", "b"):
+        client.post(
+            "/v1/redeem",
+            headers=use,
+            json={"subject_id": 42, "service_code": "door_open", "request_key": key},
+        )
+
+    summary = client.get(f"/v1/admin/tenants/{TENANT}/subjects/42/usage", headers=ADMIN).json()
+    assert summary["member"]["level_code"] == "member"
+    [door_quota] = summary["quotas"]
+    assert {k: door_quota[k] for k in ("quota_code", "services", "limit", "used", "remaining")} == {
+        "quota_code": "door_open_count",
+        "services": ["door_open"],
+        "limit": 2,
+        "used": 2,
+        "remaining": 0,
+    }
+    assert door_quota["period_kind"] == "week" and door_quota["period_end"].endswith("Z")
+    nobody = client.get(f"/v1/admin/tenants/{TENANT}/subjects/7/usage", headers=ADMIN).json()
+    assert nobody == {"subject_id": 7, "member": None, "quotas": []}
+
+    def rows(table: str, **filters):
+        params = {"tenant": TENANT, **filters}
+        return client.get(f"/v1/admin/tables/{table}", headers=ADMIN, params=params)
+
+    assert rows("tq_assignments").json()["total"] == 2
+    assert [r["subject_id"] for r in rows("tq_assignments", subject_id=43).json()["rows"]] == [43]
+    assert rows("tq_tokens", subject_id=42, service_code="door_open").json()["total"] == 2
+    assert rows("tq_tokens", subject_id=43).json()["total"] == 0
+    assert rows("tq_tokens", subject_id="abc").status_code == 400
+    assert rows("tq_tokens", token_hash="x").status_code == 400  # hidden column
+    assert rows("tq_tokens", no_such_column="x").status_code == 400

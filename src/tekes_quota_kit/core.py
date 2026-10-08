@@ -1287,6 +1287,80 @@ class QuotaKit:
                 "period_end": end.isoformat() + "Z",
             }
 
+    def subject_usage(self, tenant: str, subject: int) -> dict:
+        """One user's Level and, for every Quota that Level grants, this period's usage.
+
+        Uses the same period and usage rules as admission, so the numbers match what a Service
+        request would see right now.
+        """
+        _require(
+            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
+        )
+        now = utc_now()
+        stamp = lambda value: value.isoformat() + "Z" if value else None  # noqa: E731
+        with self.sessions() as db:
+            assignment = self._assignment(db, tenant, subject, now, required=False)
+            if assignment is None:
+                return {"subject_id": subject, "member": None, "quotas": []}
+            limits = db.scalars(
+                select(Limit)
+                .where(Limit.tenant_id == tenant, Limit.level_code == assignment.level_code)
+                .order_by(Limit.quota_code)
+            ).all()
+            quotas = []
+            for limit in limits:
+                quota = self._quota(db, tenant, limit.quota_code)
+                services = db.scalars(
+                    select(Service.service_code)
+                    .where(Service.tenant_id == tenant, Service.quota_code == limit.quota_code)
+                    .order_by(Service.service_code)
+                ).all()
+                item = {
+                    "quota_code": limit.quota_code,
+                    "unit": quota.unit_code if quota else None,
+                    "metering_mode": quota.metering_mode if quota else None,
+                    "services": list(services),
+                    "limit_mode": limit.limit_mode,
+                    "limit": limit.limit_value,
+                    "period_kind": limit.period_kind,
+                    "timezone": limit.timezone,
+                }
+                try:
+                    start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+                except QuotaError as exc:
+                    quotas.append({**item, "error": exc.code})
+                    continue
+                usage = db.scalar(
+                    select(Usage).where(
+                        Usage.tenant_id == tenant,
+                        Usage.subject_id == subject,
+                        Usage.quota_code == limit.quota_code,
+                        Usage.period_start == start,
+                    )
+                )
+                used = usage.used_units if usage else 0
+                remaining = (
+                    None if limit.limit_mode == "unlimited" else max(0, limit.limit_value - used)
+                )
+                quotas.append(
+                    {
+                        **item,
+                        "used": used,
+                        "remaining": remaining,
+                        "period_start": stamp(start),
+                        "period_end": stamp(end),
+                    }
+                )
+            return {
+                "subject_id": subject,
+                "member": {
+                    "level_code": assignment.level_code,
+                    "effective_at": stamp(assignment.effective_at),
+                    "expires_at": stamp(assignment.expires_at),
+                },
+                "quotas": quotas,
+            }
+
     def unsettled(self, provider: Client) -> list[dict]:
         with self.sessions() as db:
             rows = db.scalars(

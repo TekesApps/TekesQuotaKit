@@ -7,8 +7,8 @@
 ## 三个独立概念
 
 - **Service** 是可使用的功能。`tq_services` 中每个 `(tenant_id, service_code)` 只定义一次，例如 `blood_pressure`。
-- **Quota** 是扣费的额度种类。`tq_quotas` 中每个 `(tenant_id, quota_code)` 定义单位和计量模式，例如 `measurement_count`。
-- **Level** 是会员等级。`tq_limits` 以 `(tenant_id, level_code, quota_code)` 指定该等级对某种 Quota 的额度和周期；`tq_assignments` 指定用户当前属于哪个等级。
+- **Quota（配额）** 是计数的种类，只定义计什么，不含数量。`tq_quotas` 中每个 `(tenant_id, quota_code)` 定义单位和计量模式，例如 `measurement_count`。
+- **Level** 是会员等级。`tq_limits` 以 `(tenant_id, level_code, quota_code)` 指定该等级在每个周期对某种配额的额度（数量）；`tq_assignments` 指定用户当前属于哪个等级。
 
 Service 通过自身的 `quota_code` 选择直接使用时扣哪种 Quota。组合 Service 也是 `tq_services` 的一条记录，它有自己的 `quota_code`；子 Service 由 `tq_service_members` 关联到组合 Service。Quota 本身不存子 Service 清单，也不负责猜测多次调用是否属于同一场。
 
@@ -17,13 +17,13 @@ Service 通过自身的 `quota_code` 选择直接使用时扣哪种 Quota。组�
 | 表 | 主要连接字段 | 职责 |
 | --- | --- | --- |
 | `tq_levels` | `tenant_id`, `level_code` | 定义会员等级 |
-| `tq_quotas` | `tenant_id`, `quota_code` | 定义额度种类、单位、计量模式 |
-| `tq_limits` | `level_code`, `quota_code` | 定义等级对额度的数量和周期 |
+| `tq_quotas` | `tenant_id`, `quota_code` | 定义配额种类、单位、计量模式 |
+| `tq_limits` | `level_code`, `quota_code` | 定义等级额度：等级在每个周期对配额能用多少 |
 | `tq_assignments` | `subject_id`, `level_code` | 保存用户等级及生效、到期和会期时间 |
 | `tq_services` | `service_code`, `quota_code` | 定义原子或组合 Service，以及 `instant` 或 `durable` 使用模式 |
 | `tq_service_members` | `parent_service_code`, `child_service_code` | **组合映射表**；每行表示某组合包含某原子 Service |
 | `tq_clients` | `service_code` | 将可信调用方绑定到对外调用的 Service |
-| `tq_usage` | `subject_id`, `quota_code`, `period_start` | 保存用户当前周期已用额度 |
+| `tq_usage` | `subject_id`, `quota_code`, `period_start` | 保存用户当前周期对各配额的已用数量 |
 | `tq_tokens` | `subject_id`, `service_code`, `quota_code` | 保存一次准入、扣费状态及可选的持续使用状态 |
 | `tq_token_items` | `token_id`, `child_service_code` | 保存持续凭证的子项资格快照与每次 `use` 记录 |
 | `tq_ledger` | `token_hash`, `quota_code`, `delta_units` | 保存消费和退款流水 |

@@ -61,3 +61,29 @@
   margin-left: 6px;
   opacity: 0.8;
 }
+
+/* Search bars: fields and buttons on one 38px baseline, matching the editors. */
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.search-bar label {
+  width: 200px;
+}
+.search-bar button {
+  height: 38px;
+  min-height: 38px;
+}
+.subject-usage {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+}
+.subject-usage p {
+  margin: 0 0 10px;
+}
