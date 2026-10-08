@@ -24,6 +24,8 @@ kit.put_service(
     TENANT, "session", "visits", kind="composite", redemption_mode="durable", charge_units=1
 )
 kit.put_service(TENANT, "child", None)
+kit.put_limit(TENANT, "basic", "visits", "finite", 5, "week", "Asia/Shanghai")
+kit.assign(TENANT, 42, "basic")
 inner = create_app(kit, "e2e-admin-key-000000000000000000000000000")
 PREFIX = "/user-quota"
 

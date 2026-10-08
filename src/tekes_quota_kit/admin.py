@@ -611,6 +611,13 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         ]
         return {"tenants": sorted(found), "items": items}
 
+    @router.get(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/usage",
+        dependencies=[Depends(authenticate)],
+    )
+    def subject_usage(tenant: str, subject_id: int) -> dict:
+        return kit.subject_usage(tenant, subject_id)
+
     @router.get("/v1/admin/tenants/{tenant}/overview", dependencies=[Depends(authenticate)])
     def overview(tenant: str) -> dict:
         """Counts for the console header. Members are people with an active Level now, not
@@ -667,6 +674,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
     @router.get("/v1/admin/tables/{name}", dependencies=[Depends(authenticate)])
     def table_rows(
         name: str,
+        request: Request,
         tenant: str = Query(min_length=1, max_length=64),
         limit: int = Query(default=100, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
@@ -677,6 +685,25 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         columns = [
             column.name for column in model.__table__.columns if column.name not in PRIVATE_COLUMNS
         ]
+        # Any other query parameter is an exact-match filter on a visible column, e.g.
+        # ?subject_id=42&quota_code=door_open_count.
+        filters = []
+        for key, raw in request.query_params.items():
+            if key in {"tenant", "limit", "offset"}:
+                continue
+            if key not in columns:
+                raise HTTPException(status_code=400, detail=f"Cannot filter by {key}")
+            column = model.__table__.columns[key]
+            kind = column.type.python_type
+            if kind is int:
+                if not raw.lstrip("-").isdigit():
+                    raise HTTPException(status_code=400, detail=f"{key} must be an integer")
+                value = int(raw)
+            elif kind is str:
+                value = raw
+            else:
+                raise HTTPException(status_code=400, detail=f"Cannot filter by {key}")
+            filters.append(getattr(model, key) == value)
         with kit.sessions() as db:
             query = select(model)
             if model is TokenItem:
@@ -685,6 +712,8 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                 )
             else:
                 query = query.where(model.tenant_id == tenant)
+            for condition in filters:
+                query = query.where(condition)
             count = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
             rows = db.scalars(query.order_by(model.id.desc()).offset(offset).limit(limit)).all()
         return {

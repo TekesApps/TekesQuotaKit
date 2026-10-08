@@ -35,18 +35,19 @@ type TablePage = { columns: string[]; total: number; offset: number; rows: Row[]
 export const PAGE_SIZE = 50;
 
 /** Reads one tq_ table for a tenant through the admin browse endpoint, newest first. */
-export function useTable(table: string, tenant: string, revision: number, offset = 0, limit = PAGE_SIZE) {
+export function useTable(table: string, tenant: string, revision: number, offset = 0, limit = PAGE_SIZE, filters: Row = {}) {
+  const filterQuery = Object.entries(filters).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `&${enc(k)}=${enc(String(v))}`).join('');
   const [data, setData] = useState<TablePage | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
   useEffect(() => {
     let active = true;
     setLoading(true); setError('');
     if (!tenant) { setData(null); setLoading(false); return; }
-    api<TablePage>(`/tables/${table}?tenant=${enc(tenant)}&limit=${limit}&offset=${offset}`)
+    api<TablePage>(`/tables/${table}?tenant=${enc(tenant)}&limit=${limit}&offset=${offset}${filterQuery}`)
       .then(r => { if (active) setData(r); })
       .catch(e => { if (active) { setData(null); setError(e instanceof Error ? e.message : '加载失败'); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [table, tenant, revision, offset, limit]);
+  }, [table, tenant, revision, offset, limit, filterQuery]);
   return { rows: data?.rows ?? [], total: data?.total ?? 0, loading, error };
 }
 
@@ -54,6 +55,18 @@ export function useTable(table: string, tenant: string, revision: number, offset
 export function useCodes(table: string, column: string, tenant: string, revision: number): Option[] {
   const { rows } = useTable(table, tenant, revision, 0, 200);
   return rows.map(r => String(r[column])).sort().map(value => ({ value, label: value }));
+}
+
+/** Exact-match search on a page's key columns. Labels come from `labels`; numbers are kept as text. */
+export function SearchBar({ keys, labels, value, onSearch }: { keys: string[]; labels: Record<string, string>; value: Row; onSearch: (filters: Row) => void }) {
+  const [draft, setDraft] = useState<Row>(value);
+  useEffect(() => setDraft(value), [value]);
+  const active = Object.values(value).some(v => v !== '' && v != null);
+  return <form className="search-bar" onSubmit={e => { e.preventDefault(); onSearch(Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, String(v ?? '').trim()]).filter(([, v]) => v !== ''))); }}>
+    {keys.map(key => <label key={key}>{labels[key] || key}<input value={String(draft[key] ?? '')} placeholder="精确匹配" onChange={e => setDraft(d => ({ ...d, [key]: e.target.value }))} /></label>)}
+    <button>查询</button>
+    {active && <button type="button" className="secondary" onClick={() => { setDraft({}); onSearch({}); }}>清除</button>}
+  </form>;
 }
 
 export function Pager({ offset, total, onChange }: { offset: number; total: number; onChange: (offset: number) => void }) {

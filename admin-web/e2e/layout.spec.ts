@@ -63,6 +63,8 @@ test('every editor control is the same height, unclipped and centered', async ({
     await nav.click();
     const pageForm = await measure(page, '.main form');
     if (pageForm.length) expectAligned(`${name} (page)`, pageForm);
+    for (const height of await page.locator('.search-bar button').evaluateAll(els => els.map(el => el.getBoundingClientRect().height)))
+      expect(height, `${name} search button height`).toBe(CONTROL_HEIGHT);
     const buttons = page.locator('.panel-head button');
     for (let b = 0; b < await buttons.count(); b++) {
       const label = (await buttons.nth(b).textContent())?.trim() || `button ${b}`;
@@ -177,4 +179,33 @@ test('disabled controls look alike, and rotation downloads without a form', asyn
   expect(file.suggestedFilename()).toBe('e2e-rotate-quotakit.md');
   await expect(page.locator('.drawer-panel')).toHaveCount(0);
   await expect(page.getByRole('status')).toContainText('已轮换 e2e-rotate');
+});
+
+test('looks up one user\'s usage and drills from a Level to its 等级额度', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  const search = (label: string) => page.locator('.search-bar label').filter({ hasText: label }).locator('input');
+
+  await page.getByRole('button', { name: '用量', exact: true }).click();
+  await search('用户 ID').fill('42');
+  await page.locator('.search-bar').getByRole('button', { name: '查询' }).click();
+  const card = page.getByRole('region', { name: '用户 42 的配额使用情况' });
+  await expect(card).toContainText('basic');
+  const visits = card.locator('tbody tr').filter({ hasText: 'visits' });
+  await expect(visits).toContainText('5');
+  await expect(visits).toContainText('每周');
+
+  await search('用户 ID').fill('7');
+  await page.locator('.search-bar').getByRole('button', { name: '查询' }).click();
+  await expect(page.getByText('用户 7 当前不是会员')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Level 等级' }).click();
+  await page.locator('tbody tr').filter({ hasText: 'basic' }).getByRole('button', { name: /1 项配额/ }).click();
+  await expect(page.getByRole('heading', { name: '等级额度', level: 1 })).toBeVisible();
+  await expect(search('Level')).toHaveValue('basic');
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await page.locator('.search-bar').getByRole('button', { name: '清除' }).click();
+  await expect(search('Level')).toHaveValue('');
 });
