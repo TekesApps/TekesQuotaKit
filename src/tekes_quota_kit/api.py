@@ -107,7 +107,7 @@ class UseRequest(TokenRequest):
 def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     if len(admin_key) < 32:
         raise ValueError("Admin key must be at least 32 characters")
-    app = FastAPI(title="TekesQuotaKit", version="0.7.1")
+    app = FastAPI(title="TekesQuotaKit", version="0.7.2")
 
     @app.exception_handler(QuotaError)
     async def quota_error(_request, exc: QuotaError):
