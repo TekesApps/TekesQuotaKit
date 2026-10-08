@@ -6,7 +6,7 @@ import { type Row, statusNames, text } from './types';
 export type Column = { title: string; key: string; render?: (row: Row) => ReactNode };
 export type Option = { value: string; label: string };
 export type Field = {
-  name: string; label: string; required?: boolean; key?: boolean;
+  name: string; label: string; required?: boolean; key?: boolean; locked?: boolean;
   type?: 'text' | 'number' | 'checkbox' | 'datetime';
   options?: Option[]; placeholder?: string; hint?: string; min?: number; max?: number;
 };
@@ -122,7 +122,7 @@ export function Editor({ title, fields, initial = {}, editing = false, submitLab
   return <Drawer title={title} onClose={() => { if (!busy) onClose(); }}><form onSubmit={save}>
     {error && <div role="alert" className="error-box">{error}</div>}
     <div className="grid two">{fields.map(field => {
-      const locked = editing && field.key;
+      const locked = Boolean(field.locked) || (editing && field.key);
       const value = values[field.name];
       const control = field.options
         ? <Select aria-label={field.label} disabled={locked} showSearch optionFilterProp="label" allowClear={!field.required} placeholder={field.placeholder || '请选择'} options={field.options} value={value === '' || value == null ? undefined : String(value)} onChange={v => set(field.name, v ?? '')} />

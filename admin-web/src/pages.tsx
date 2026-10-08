@@ -227,11 +227,23 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
       { label: '删除', danger: true, action: () => void remove(row) },
     ]} /> },
   ];
-  const fields: Field[] = [
+  const membership = form?.role === 'membership';
+  const definitionField: Field = definition
+    ? { name: 'subject_id_definition', label: '用户 ID 定义', locked: true, hint: '已在业务系统设定，所有凭据共用。要修改请到“用户与接入 → 业务系统”' }
+    : { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id', hint: '本业务系统还没有设定。按实际情况填写：subject_id 是哪张表的哪个整数字段。之后只能在“业务系统”页修改' };
+  // Two forms: a member-sync credential has a fixed role and no Service; a Service credential
+  // picks its Service and one of the Service roles.
+  const fields: Field[] = membership ? [
+    { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'shukang-members' },
+    { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步')], hint: '只能维护会员名单，不调用服务' },
+    definitionField,
+    { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
+    { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
+  ] : [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'wecom-door' },
-    { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方'), option('membership', '会员同步')], hint: '会员同步：只能维护会员名单，不调用服务' },
-    { name: 'service_code', label: 'Service', key: true, options: services, hint: '会员同步凭据不需要选' },
-    { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id', hint: '按业务系统实际情况填写：subject_id 是哪张表的哪个整数字段。会写进接入说明，并供本业务系统所有凭据共用' },
+    { name: 'service_code', label: 'Service', required: true, key: true, options: services },
+    { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方')] },
+    definitionField,
     { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
     { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
   ];
@@ -240,10 +252,9 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     {error && <div className="error-box" role="alert">{error}</div>}
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
-    {form && <Editor title={form.rotate && form.client_id ? `轮换 ${text(form.client_id)}` : '签发客户端凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={Boolean(form.rotate && form.client_id)}
+    {form && <Editor key={membership ? 'membership' : 'service'} title={form.rotate && form.client_id ? `轮换 ${text(form.client_id)}` : membership ? '签发会员同步凭据' : '签发服务凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={Boolean(form.rotate && form.client_id)}
       onSave={async d => {
         const id = required(d.client_id, 'Client ID');
-        if (d.role !== 'membership') required(d.service_code, 'Service');
         await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: d.rotate, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
         onChanged(`已为 ${id} 生成密钥并下载接入说明`);
       }}

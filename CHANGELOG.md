@@ -8,6 +8,15 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Once a business system has a user ID definition, issuing a credential can no longer change it.
+  The console shows it read-only in the issue form and points to the 业务系统 page; the API returns
+  409 for a different definition. The 业务系统 page (`PUT /v1/admin/tenants/{tenant}`) is the one
+  place to change it.
+- The issue form is split by credential type. "签发会员同步凭据" has a fixed role and no Service
+  field; "签发服务凭据" offers only the Service roles. Hints for the other type no longer show.
+
 ## [0.7.0] - 2026-10-08
 
 ### Added
