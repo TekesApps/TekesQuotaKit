@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-08
+
 ### Fixed
 
 - The backup example in `docs/deployment.md` listed only the 11 tables from 0.2 and missed
@@ -153,7 +155,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.2.2...v0.3.0
