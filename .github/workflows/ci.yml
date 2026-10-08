@@ -57,6 +57,22 @@ jobs:
         run: npm run build
         working-directory: admin-web
 
+      - name: Set up uv for the test server
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python for the test server
+        run: uv python install 3.12
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: admin-web
+
+      - name: Layout tests (control height, clipping, alignment)
+        run: npm run test:e2e
+        working-directory: admin-web
+
       - name: Committed build is up to date
         run: |
           git status --porcelain -- src/tekes_quota_kit/admin_assets

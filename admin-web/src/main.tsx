@@ -8,6 +8,7 @@ import { Sidebar, type NavigationGroup } from './sidebar';
 import { AssignmentsPage, ClientsPage, DataPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
 import './admin.css';
 import './login.css';
+import './antd-overrides.css';
 
 const navigation: NavigationGroup[] = [
   { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 额度'], ['levels', 'Level 等级'], ['limits', '额度规则']] },
