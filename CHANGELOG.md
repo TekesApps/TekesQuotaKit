@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-08
+
 ### Changed
 
 - Once a business system has a user ID definition, issuing a credential can no longer change it.
@@ -174,7 +176,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.4.0...v0.5.0
