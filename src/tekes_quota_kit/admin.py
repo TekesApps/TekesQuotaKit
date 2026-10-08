@@ -611,6 +611,32 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         ]
         return {"tenants": sorted(found), "items": items}
 
+    @router.get("/v1/admin/tenants/{tenant}/overview", dependencies=[Depends(authenticate)])
+    def overview(tenant: str) -> dict:
+        """Counts for the console header. Members are people with an active Level now, not
+        assignment rows, which keep history and grow with every renewal or level change."""
+        now = utc_now()
+        with kit.sessions() as db:
+
+            def count(model) -> int:
+                return db.scalar(
+                    select(func.count()).select_from(model).where(model.tenant_id == tenant)
+                )
+
+            members = db.scalar(
+                select(func.count(func.distinct(Assignment.subject_id))).where(
+                    Assignment.tenant_id == tenant,
+                    Assignment.effective_at <= now,
+                    (Assignment.expires_at.is_(None) | (Assignment.expires_at > now)),
+                )
+            )
+            return {
+                "services": count(Service),
+                "levels": count(Level),
+                "clients": count(Client),
+                "active_members": members,
+            }
+
     @router.put("/v1/admin/tenants/{tenant}", dependencies=[Depends(authenticate)])
     def register_tenant(tenant: str, payload: TenantRequest) -> dict:
         if len(tenant) > 64 or not SAFE_CODE.fullmatch(tenant):

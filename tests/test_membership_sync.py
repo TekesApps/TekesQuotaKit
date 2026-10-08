@@ -262,3 +262,24 @@ def test_contracts_explain_a_loopback_base_url(tmp_path):
         },
     )
     assert public.status_code == 200 and "production server" not in public.text
+
+
+def test_overview_counts_current_members_not_history_rows(tmp_path):
+    kit, client = setup(tmp_path)
+    _, members = provision(client, "shukang-members", "membership")
+    sync = {"Authorization": f"Bearer {members['client_key']}"}
+    for days in (10, 20, 30):  # one person, renewed twice: three assignment rows
+        client.put(
+            "/v1/members/1",
+            headers=sync,
+            json={"level_code": "member", "expires_at": later(days), "renew_term": True},
+        )
+    client.put("/v1/members/2", headers=sync, json={"level_code": "member", "renew_term": True})
+    client.put("/v1/members/3", headers=sync, json={"level_code": "member", "renew_term": True})
+    client.delete("/v1/members/3", headers=sync)
+    overview = client.get(f"/v1/admin/tenants/{TENANT}/overview", headers=ADMIN).json()
+    assert overview == {"services": 1, "levels": 1, "clients": 1, "active_members": 2}
+    rows = client.get(
+        "/v1/admin/tables/tq_assignments", headers=ADMIN, params={"tenant": TENANT}
+    ).json()["total"]
+    assert rows == 5

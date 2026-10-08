@@ -25,7 +25,7 @@ export const statusNames: Record<string, string> = {
 /** Column titles shared by every table view. */
 export const columnNames: Record<string, string> = {
   id: 'ID', tenant_id: '租户', client_id: 'Client ID', role: '角色',
-  quota_code: 'Quota', unit_code: '单位', metering_mode: '计量方式',
+  quota_code: 'Quota 配额', unit_code: '单位', metering_mode: '计量方式',
   level_code: 'Level', limit_mode: '限额方式', limit_value: '限额', period_kind: '周期', timezone: '时区',
   service_code: 'Service', service_kind: '类型', redemption_mode: '兑现方式', charge_units: '开场扣费', session_ttl_seconds: '默认时长(秒)',
   parent_service_code: '组合 Service', child_service_code: '子 Service', max_uses: '每场上限',

@@ -3,7 +3,8 @@ import { api, download, enc } from './api';
 import { Actions, Editor, Pager, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
 import { columnNames, type Row, text, time } from './types';
 
-export type PageProps = { tenant: string; revision: number; onChanged: (message: string) => void };
+// `focus` narrows a page to matching rows, e.g. { level_code: 'member' } when jumping from a Level.
+export type PageProps = { tenant: string; revision: number; onChanged: (message: string) => void; focus?: Row; onNavigate?: (section: string, focus?: Row) => void };
 
 const option = (value: string, label: string): Option => ({ value, label: `${label}（${value}）` });
 const STATUS_KEYS = new Set(['status', 'session_status', 'metering_mode', 'limit_mode', 'period_kind', 'service_kind', 'redemption_mode', 'role', 'event_type']);
@@ -27,9 +28,12 @@ type Spec = {
   remove?: { label: string; confirm: (row: Row) => string; run: (tenant: string, row: Row) => Promise<unknown> };
 };
 
-function ConfigPage({ spec, tenant, revision, onChanged }: PageProps & { spec: Spec }) {
+function ConfigPage({ spec, tenant, revision, onChanged, focus, onNavigate, section }: PageProps & { spec: Spec; section?: string }) {
   const [offset, setOffset] = useState(0), [editing, setEditing] = useState<Row | null>(null), [creating, setCreating] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const result = useTable(spec.table, tenant, revision, offset);
+  // A focused page loads the whole (small) config table and shows only the matching rows.
+  const loaded = useTable(spec.table, tenant, revision, focus ? 0 : offset, focus ? 200 : undefined);
+  const focusEntries = Object.entries(focus ?? {});
+  const result = focus ? { ...loaded, rows: loaded.rows.filter(r => focusEntries.every(([k, v]) => String(r[k]) === String(v))) } : loaded;
   async function remove(row: Row) {
     if (!spec.remove || !window.confirm(spec.remove.confirm(row))) return;
     setBusy(true); setError('');
@@ -43,11 +47,12 @@ function ConfigPage({ spec, tenant, revision, onChanged }: PageProps & { spec: S
   return <section className="panel">
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}</p></div><button onClick={() => setCreating(true)}>{spec.addLabel}</button></div>
     {error && <div className="error-box" role="alert">{error}</div>}
+    {focus && <p className="notice" role="status">只显示 {focusEntries.map(([k, v]) => `${columnNames[k] || k} = ${text(v)}`).join('，')} 的记录。<button type="button" className="ghost" style={{ marginLeft: 8, minHeight: 0, padding: '2px 8px' }} onClick={() => onNavigate?.(section || '')}>显示全部</button></p>}
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
-    <Pager offset={offset} total={result.total} onChange={setOffset} />
+    {!focus && <Pager offset={offset} total={result.total} onChange={setOffset} />}
     {(creating || editing) && <Editor
       title={editing ? `编辑${spec.title}` : spec.addLabel} fields={spec.fields} editing={Boolean(editing)}
-      initial={editing ?? spec.defaults ?? {}}
+      initial={editing ?? { ...(spec.defaults ?? {}), ...(focus ?? {}) }}
       onSave={async data => { await spec.save(tenant, data); onChanged(editing ? '已保存修改' : '已新增'); }}
       onClose={() => { setEditing(null); setCreating(false); }} />}
   </section>;
@@ -58,8 +63,8 @@ const required = (value: unknown, label: string) => { if (value == null || value
 
 export function QuotasPage(props: PageProps) {
   return <ConfigPage {...props} spec={{
-    table: 'tq_quotas', title: 'Quota 额度', addLabel: '新增 Quota',
-    description: '扣费的额度种类。创建后单位和计量方式不能修改。',
+    table: 'tq_quotas', title: 'Quota 配额', addLabel: '新增 Quota',
+    description: '计什么，例如开门次数、测量次数。这里不含数量，每个等级能用多少在“等级额度”里配置。创建后单位和计量方式不能修改。',
     columns: ['quota_code', 'unit_code', 'metering_mode'].map(k => column(k)),
     defaults: { unit_code: 'use', metering_mode: 'per_use' },
     fields: [
@@ -72,21 +77,28 @@ export function QuotasPage(props: PageProps) {
 }
 
 export function LevelsPage(props: PageProps) {
+  const limits = useTable('tq_limits', props.tenant, props.revision, 0, 200);
+  const perLevel = (code: unknown) => limits.rows.filter(r => r.level_code === code).length;
+  const amounts: Column = { key: '_limits', title: '等级额度', render: row => {
+    const n = perLevel(row.level_code);
+    return <button type="button" className="ghost" onClick={() => props.onNavigate?.('limits', { level_code: row.level_code })}>{limits.loading ? '…' : n ? `${n} 项配额 →` : '未配置，去添加 →'}</button>;
+  } };
   return <ConfigPage {...props} spec={{
     table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level',
-    description: '会员等级。每个等级在“额度规则”里给各 Quota 配额度。',
-    columns: [column('level_code')],
+    description: '会员等级。每个等级对各配额能用多少，在“等级额度”里配置；点击右侧的数量查看。',
+    columns: [column('level_code'), amounts],
     fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }],
     save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`),
   }} />;
 }
 
 export function LimitsPage(props: PageProps) {
+  const section = 'limits';
   const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
-  return <ConfigPage {...props} spec={{
-    table: 'tq_limits', title: '额度规则', addLabel: '新增额度规则', editable: true,
-    description: '某个 Level 对某个 Quota 的额度和周期。创建后周期和时区不能修改。',
+  return <ConfigPage {...props} section={section} spec={{
+    table: 'tq_limits', title: '等级额度', addLabel: '新增等级额度', editable: true,
+    description: '某个 Level 在每个周期对某个配额能用多少。创建后周期和时区不能修改。',
     columns: ['level_code', 'quota_code', 'limit_mode', 'limit_value', 'period_kind', 'timezone'].map(k => column(k)),
     defaults: { limit_mode: 'finite', period_kind: 'month', timezone: 'Asia/Shanghai' },
     fields: [
@@ -277,7 +289,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
 }
 
 const DATA_TABLES: Record<string, { table: string; title: string; description: string; columns: string[] }> = {
-  usage: { table: 'tq_usage', title: '用量', description: '每个用户在当前周期已用的额度。', columns: ['subject_id', 'quota_code', 'used_units', 'period_start', 'period_end'] },
+  usage: { table: 'tq_usage', title: '用量', description: '每个用户在当前周期对各配额已用的数量。', columns: ['subject_id', 'quota_code', 'used_units', 'period_start', 'period_end'] },
   tokens: { table: 'tq_tokens', title: '凭证', description: '每次准入或兑现生成的凭证与扣费状态。', columns: ['id', 'subject_id', 'service_code', 'quota_code', 'status', 'consumed_units', 'session_status', 'admitted_at', 'session_expires_at', 'request_key'] },
   token_items: { table: 'tq_token_items', title: '场次明细', description: '持续凭证的子项资格（序号 0）与每次使用记录。', columns: ['token_id', 'child_service_code', 'slot_no', 'status', 'max_uses', 'used_at', 'request_key'] },
   ledger: { table: 'tq_ledger', title: '流水', description: '扣减与退还的不可变账本。', columns: ['created_at', 'subject_id', 'service_code', 'quota_code', 'event_type', 'delta_units', 'unit_code'] },
@@ -294,11 +306,16 @@ export function DataPage({ kind, tenant, revision }: PageProps & { kind: string 
   </section>;
 }
 
+type OverviewCounts = { services: number; levels: number; clients: number; active_members: number };
+
 export function Overview({ tenant, revision }: { tenant: string; revision: number }) {
-  const counts = [['Service', 'tq_services'], ['Level', 'tq_levels'], ['客户端', 'tq_clients'], ['用户', 'tq_assignments']] as const;
-  return <div className="stats">{counts.map(([label, table]) => <Stat key={table} label={label} table={table} tenant={tenant} revision={revision} />)}</div>;
-}
-function Stat({ label, table, tenant, revision }: { label: string; table: string; tenant: string; revision: number }) {
-  const result = useTable(table, tenant, revision, 0, 1);
-  return <div className="stat"><span className="muted">{label}</span><strong>{result.loading || result.error ? '—' : result.total}</strong></div>;
+  const [counts, setCounts] = useState<OverviewCounts | null>(null);
+  useEffect(() => {
+    let active = true;
+    setCounts(null);
+    api<OverviewCounts>(`/tenants/${enc(tenant)}/overview`).then(r => { if (active) setCounts(r); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [tenant, revision]);
+  const items: [string, keyof OverviewCounts][] = [['Service', 'services'], ['Level', 'levels'], ['客户端', 'clients'], ['当前会员', 'active_members']];
+  return <div className="stats">{items.map(([label, key]) => <div className="stat" key={key}><span className="muted">{label}</span><strong>{counts ? counts[key] : '—'}</strong></div>)}</div>;
 }

@@ -43,6 +43,12 @@ test('every editor control is the same height, unclipped and centered', async ({
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await expect(page.getByText('端到端测试')).toBeVisible();
 
+  // Terminology: Quota is 配额 (what is counted); 额度 only names amounts (等级额度).
+  const nav = (await page.locator('.nav-btn').allTextContents()).map(t => t.trim());
+  expect(nav).toEqual(expect.arrayContaining(['Quota 配额', '等级额度']));
+  expect(nav.join()).not.toContain('额度规则');
+  await expect(page.locator('.stat').filter({ hasText: '当前会员' })).toHaveCount(1);
+
   // Sidebar caption: no letter-spacing between characters, and the console version.
   const caption = page.locator('.aside-caption');
   await expect(caption).toHaveText(`配额管理平台 v${version}`);
