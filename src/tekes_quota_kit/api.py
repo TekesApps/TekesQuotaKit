@@ -39,7 +39,7 @@ class ServiceMemberConfig(BaseModel):
 class LimitConfig(BaseModel):
     limit_mode: Literal["finite", "unlimited"]
     limit_value: int | None = Field(default=None, ge=0)
-    period_kind: Literal["day", "month", "level_term"]
+    period_kind: Literal["day", "week", "month", "level_term"]
     timezone: str = "Asia/Shanghai"
 
 

@@ -94,7 +94,7 @@ export function LimitsPage(props: PageProps) {
       { name: 'quota_code', label: 'Quota', required: true, key: true, options: quotas },
       { name: 'limit_mode', label: '限额方式', required: true, options: [option('finite', '有限'), option('unlimited', '不限')] },
       { name: 'limit_value', label: '限额', type: 'number', min: 0, hint: '不限时留空' },
-      { name: 'period_kind', label: '周期', required: true, options: [option('day', '每日'), option('month', '每月'), option('level_term', '会员期')] },
+      { name: 'period_kind', label: '周期', required: true, options: [option('day', '每日'), option('week', '每周（周一 0 点重置）'), option('month', '每月'), option('level_term', '会员期')] },
       { name: 'timezone', label: '时区', required: true },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level'))}/limits/${enc(required(d.quota_code, 'Quota'))}`,

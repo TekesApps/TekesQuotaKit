@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- `week` Limit period: a natural week from Monday 00:00 to the next Monday 00:00 in the Limit's
+  timezone. Available in the API and the console.
+
 ## [0.4.0] - 2026-10-08
 
 ### Added

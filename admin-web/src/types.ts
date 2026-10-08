@@ -18,7 +18,7 @@ export const statusNames: Record<string, string> = {
   finite: '有限', unlimited: '不限',
   per_use: '按次', reported_usage: '按用量',
   atomic: '原子', composite: '组合', instant: '即时', durable: '持续',
-  day: '每日', month: '每月', level_term: '会员期',
+  day: '每日', week: '每周', month: '每月', level_term: '会员期',
   issuer: '准入方', provider: '执行方', consumer: '准入+执行',
 };
 

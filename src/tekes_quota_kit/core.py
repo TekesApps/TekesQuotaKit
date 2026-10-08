@@ -68,6 +68,11 @@ def _period(
     if kind == "day":
         start = local.replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=1)
+    elif kind == "week":
+        # Natural week: Monday 00:00 to the next Monday 00:00 in the Limit's timezone.
+        midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = midnight - timedelta(days=local.weekday())
+        end = start + timedelta(days=7)
     elif kind == "month":
         start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = (
@@ -349,7 +354,8 @@ class QuotaKit:
             "Invalid limit value",
             400,
         )
-        _require(period in {"day", "month", "level_term"}, "invalid_period", "Invalid period", 400)
+        periods = {"day", "week", "month", "level_term"}
+        _require(period in periods, "invalid_period", "Invalid period", 400)
         try:
             ZoneInfo(timezone)
         except (KeyError, ValueError) as exc:
