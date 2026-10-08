@@ -10,6 +10,9 @@ Before 1.0, minor versions may contain breaking changes.
 
 ### Fixed
 
+- The admin page works behind a reverse proxy path prefix such as `/user-quota/admin`. Its
+  stylesheet and script URLs are relative, and admin API calls use the prefix derived from the
+  page path. Serving at `/admin` is unchanged.
 - Require `pymysql[rsa]` so MySQL 8 `caching_sha2_password` accounts can connect without TLS.
   Pin PyMySQL below 1.2.1, because 1.2.1 to 1.2.3 crash with `'NoneType' object has no attribute
   'is_auth_switch_request'` on a cold full authentication.
