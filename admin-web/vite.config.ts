@@ -1,4 +1,8 @@
 import { defineConfig } from 'vite';
+import { readFileSync } from 'node:fs';
+
+// The console shows its version; releases bump package.json together with the Python package.
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 // The build ships inside the Python package and is served at /admin (or /<prefix>/admin
 // behind a proxy). The page URL has no trailing slash, so the HTML must reference
@@ -6,6 +10,7 @@ import { defineConfig } from 'vite';
 // the importing file.
 export default defineConfig({
   base: './',
+  define: { __APP_VERSION__: JSON.stringify(version) },
   build: {
     outDir: '../src/tekes_quota_kit/admin_assets',
     emptyOutDir: true,

@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- The sidebar caption reads 配额管理平台 without the wide letter-spacing, and shows the console
+  version, taken from `admin-web/package.json` at build time. A browser test checks both.
+
 ## [0.7.2] - 2026-10-08
 
 ### Changed

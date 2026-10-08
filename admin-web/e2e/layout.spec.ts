@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
 // Guards against controls whose text is clipped or misaligned. The Shukang admin stylesheet
 // styles every bare <input>, which once made antd's inner inputs taller than their frames.
@@ -38,6 +41,11 @@ test('every editor control is the same height, unclipped and centered', async ({
   await page.getByLabel('密码').fill('e2e-console-password');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await expect(page.getByText('端到端测试')).toBeVisible();
+
+  // Sidebar caption: no letter-spacing between characters, and the console version.
+  const caption = page.locator('.aside-caption');
+  await expect(caption).toHaveText(`配额管理平台 v${version}`);
+  expect(await caption.evaluate(el => getComputedStyle(el).letterSpacing)).toMatch(/^(normal|0px)$/);
 
   const navs = page.locator('.nav-btn');
   const count = await navs.count();
