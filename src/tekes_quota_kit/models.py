@@ -25,6 +25,18 @@ SUBJECT_ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 UTC_DATETIME = MySQLDateTime(fsp=6).with_variant(DateTime(), "sqlite")
 
 
+class Tenant(Base):
+    """A registered business system. Rules, clients and usage are scoped by `tenant_id`."""
+
+    __tablename__ = "tq_tenants"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+
+
 class Client(Base):
     __tablename__ = "tq_clients"
 

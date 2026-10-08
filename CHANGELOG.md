@@ -8,6 +8,19 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Business system registry (`tq_tenants`) and `PUT /v1/admin/tenants/{tenant}` to register a
+  business system with a display name. `GET /v1/admin/tenants` also returns `items` with each
+  tenant's name and whether it is registered. Upgrades run `init-schema` or
+  `migrations/add_tenants_mysql.sql`.
+
+### Changed
+
+- The console asks for the business system (name and code) on first sign-in, then works in it and
+  shows its name in the header. The free-text tenant box is gone, so a typo can no longer start an
+  empty tenant. A switcher appears only when several business systems are registered.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

@@ -93,7 +93,7 @@ def test_session_cookie_authorizes_admin_api_and_writes_need_guard(env):
     assert unguarded.status_code == 403
     guarded = client.put("/v1/admin/tenants/demo-tenant/levels/basic", json={}, headers=GUARD)
     assert guarded.status_code == 200
-    assert client.get("/v1/admin/tenants").json() == {"tenants": ["demo-tenant"]}
+    assert client.get("/v1/admin/tenants").json()["tenants"] == ["demo-tenant"]
 
 
 def test_logout_revokes_the_session(env):
@@ -179,3 +179,32 @@ def test_cli_manages_admin_users(tmp_path, monkeypatch, capsys):
     assert code == 0 and "Disabled ops" in out.out
     code, out = cli("admin-user", "passwd", "--username", "ops", "--password-stdin", stdin="x\n")
     assert code == 1 and "at least 12" in out.err
+
+
+def test_register_business_system_and_list_it(env):
+    _kit, _accounts, client = env
+    login(client)
+    assert client.get("/v1/admin/tenants").json() == {"tenants": [], "items": []}
+    created = client.put(
+        "/v1/admin/tenants/shukang-zhiyi", json={"name": "数康智医"}, headers=GUARD
+    )
+    assert created.status_code == 200
+    assert created.json() == {"tenant_id": "shukang-zhiyi", "name": "数康智医"}
+    # A tenant used only by API scripts is listed but marked unregistered.
+    client.put("/v1/admin/tenants/legacy/levels/basic", json={}, headers=GUARD)
+    assert client.get("/v1/admin/tenants").json()["items"] == [
+        {"tenant_id": "legacy", "name": None, "registered": False},
+        {"tenant_id": "shukang-zhiyi", "name": "数康智医", "registered": True},
+    ]
+    renamed = client.put("/v1/admin/tenants/shukang-zhiyi", json={"name": " 数康 "}, headers=GUARD)
+    assert renamed.json()["name"] == "数康"
+    assert (
+        client.put("/v1/admin/tenants/bad code", json={"name": "x"}, headers=GUARD).status_code
+        == 400
+    )
+    assert (
+        client.put("/v1/admin/tenants/" + "a" * 65, json={"name": "x"}, headers=GUARD).status_code
+        == 400
+    )
+    assert client.put("/v1/admin/tenants/ok", json={"name": "  "}, headers=GUARD).status_code == 400
+    assert client.put("/v1/admin/tenants/ok", json={"name": "x"}).status_code == 403

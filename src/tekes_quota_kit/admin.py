@@ -20,7 +20,7 @@ from .admin_auth import (
     cookie_path,
     cookie_secure,
 )
-from .core import QuotaKit
+from .core import QuotaKit, utc_now
 from .models import (
     Assignment,
     Client,
@@ -30,6 +30,7 @@ from .models import (
     Quota,
     Service,
     ServiceMember,
+    Tenant,
     Token,
     TokenItem,
     Usage,
@@ -80,6 +81,10 @@ def _asset_bytes(name: str) -> bytes:
 
 def _asset(name: str) -> str:
     return _asset_bytes(name).decode("utf-8")
+
+
+class TenantRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
 
 
 class LoginRequest(BaseModel):
@@ -304,11 +309,36 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
 
     @router.get("/v1/admin/tenants", dependencies=[Depends(authenticate)])
     def tenants() -> dict:
+        """Registered business systems, plus tenant IDs that only appear in data."""
         with kit.sessions() as db:
-            found = set()
+            registered = {t.tenant_id: t.name for t in db.scalars(select(Tenant))}
+            found = set(registered)
             for model in (Level, Quota, Service, Client, Assignment):
                 found.update(db.scalars(select(model.tenant_id).distinct()))
-        return {"tenants": sorted(found)}
+        items = [
+            {"tenant_id": t, "name": registered.get(t), "registered": t in registered}
+            for t in sorted(found)
+        ]
+        return {"tenants": sorted(found), "items": items}
+
+    @router.put("/v1/admin/tenants/{tenant}", dependencies=[Depends(authenticate)])
+    def register_tenant(tenant: str, payload: TenantRequest) -> dict:
+        if len(tenant) > 64 or not SAFE_CODE.fullmatch(tenant):
+            raise HTTPException(
+                status_code=400,
+                detail="代码只能使用字母、数字和 . _ -，最多 64 个字符",
+            )
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="请填写业务系统名称")
+        now = utc_now()
+        with kit.sessions.begin() as db:
+            row = db.scalar(select(Tenant).where(Tenant.tenant_id == tenant))
+            if row is None:
+                db.add(Tenant(tenant_id=tenant, name=name, created_at=now, updated_at=now))
+            else:
+                row.name, row.updated_at = name, now
+        return {"tenant_id": tenant, "name": name}
 
     @router.get("/v1/admin/tables", dependencies=[Depends(authenticate)])
     def table_names() -> dict:
