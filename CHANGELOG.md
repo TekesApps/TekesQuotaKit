@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-08
+
 ### Added
 
 - Search on every console page by its key columns (for example user ID, Service, 配额, Level,
@@ -222,7 +224,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.0...v0.7.1
