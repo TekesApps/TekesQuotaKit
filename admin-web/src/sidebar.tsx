@@ -30,7 +30,7 @@ export function Sidebar({ groups, section, onNavigate, onCollapse }: Props) {
   const toggleGroup = (label: string) => setCollapsedGroups(current => current.includes(label) ? current.filter(item => item !== label) : [...current, label]);
   return <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''}`} aria-label="管理导航">
     <div className="sidebar-heading"><div className="wordmark"><span aria-hidden="true">✳</span><span className="sidebar-name"> TekesQuotaKit</span></div><button className="sidebar-toggle" type="button" aria-label={collapsed ? '展开侧栏' : '收起侧栏'} title={collapsed ? '展开侧栏' : '收起侧栏'} aria-expanded={!collapsed} aria-controls="admin-sidebar-navigation" onClick={() => setCollapsed(value => !value)}><svg className="sidebar-arrow" style={{ transform: collapsed ? 'rotate(180deg)' : undefined }} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 6 6 12l6 6M18 6l-6 6 6 6" /></svg></button></div>
-    <div className="aside-caption" hidden={collapsed}>配额管理平台</div>
+    <div className="aside-caption" hidden={collapsed}>配额管理平台 <span className="app-version">v{__APP_VERSION__}</span></div>
     <nav id="admin-sidebar-navigation" hidden={collapsed}>{groups.map(group => {
       const expanded = !collapsedGroups.includes(group.label);
       const contentId = `nav-section-${group.items[0][0]}`;
