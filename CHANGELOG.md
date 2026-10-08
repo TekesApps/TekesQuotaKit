@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-08
+
 ### Added
 
 - A "业务系统" page in the console to edit the business system's name and user ID definition
@@ -163,7 +165,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.3.0...v0.4.0
