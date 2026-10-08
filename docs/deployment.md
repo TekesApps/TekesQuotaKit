@@ -90,6 +90,10 @@ The web admin sign-in adds three tables (`tq_admin_users`, `tq_admin_sessions`, 
 
 0.4.0 adds one table, `tq_tenants`, for the business system the console asks for on first sign-in. Run `tekes-quota-kit init-schema`, or apply `migrations/add_tenants_mysql.sql` once. No existing table changes.
 
+### Upgrading a 0.4.x or 0.5.x install
+
+0.6.0 adds one nullable column, `tq_tenants.subject_id_definition`. `init-schema` cannot add columns, so apply `migrations/add_subject_id_definition_mysql.sql` once **before** starting 0.6.0; 0.6.0 fails to read business systems without it. The column is nullable, so the running 0.4.x or 0.5.x keeps working after it is added. The next credential issued for each business system asks for the user ID definition.
+
 ### Web admin accounts
 
 The console has no sign-up. Create accounts on the server, with the same environment as `serve`:

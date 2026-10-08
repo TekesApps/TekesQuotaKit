@@ -458,16 +458,16 @@ Response: `{"client_id": "..."}`. Replacing an existing client overwrites its ke
 
 A tenant ID is the scope of every rule and client. Admin `PUT` calls may still use a new tenant ID implicitly, as scripts did before; registering it adds a display name and lets the console offer it.
 
-`PUT /v1/admin/tenants/{tenant}` with `{"name": "数康智医"}` registers the business system, or renames it if already registered. The tenant ID must match `[A-Za-z0-9._-]{1,64}`; the name must be 1–100 non-blank characters. Both errors return 400. There is no delete.
+`PUT /v1/admin/tenants/{tenant}` with `{"name": "数康智医"}` registers the business system, or renames it if already registered. An optional `subject_id_definition` sets the user ID definition quoted in client contracts; omitting it keeps the stored one. The tenant ID must match `[A-Za-z0-9._-]{1,64}`; the name must be 1–100 non-blank characters. Both errors return 400. There is no delete.
 
 `GET /v1/admin/tenants` returns:
 
 ```json
 {
-  "tenants": ["legacy", "shukang-zhiyi"],
+  "tenants": ["demo-business", "legacy"],
   "items": [
-    {"tenant_id": "legacy", "name": null, "registered": false},
-    {"tenant_id": "shukang-zhiyi", "name": "数康智医", "registered": true}
+    {"tenant_id": "demo-business", "name": "演示系统", "registered": true, "subject_id_definition": "user_table.id"},
+    {"tenant_id": "legacy", "name": null, "registered": false, "subject_id_definition": null}
   ]
 }
 ```
@@ -590,14 +590,15 @@ Creates a client with a server-generated key, or rotates the key of an existing 
 | Field | Type | Default | Constraints |
 | --- | --- | --- | --- |
 | `tenant_id` | string | | 1 to 64 characters. |
-| `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). |
-| `role` | string | | `issuer`, `provider`, or `consumer` (422 otherwise). |
+| `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). Ignored for `membership`. |
+| `role` | string | | `issuer`, `provider`, `consumer`, or `membership` (422 otherwise). |
+| `subject_id_definition` | string | stored value | Up to 500 characters, written by an operator: what `subject_id` is in this business system, for example `user_table.id`. Saved on the business system and quoted in every contract it issues. Required until one is stored (400 otherwise, and no key is generated); later requests may omit it to reuse the stored text, or send new text to replace it. |
 | `base_url` | string | | 8 to 512 characters. `http` or `https` URL with a host and no credentials, query, fragment, or whitespace (400 otherwise). Written into the contract as the API base URL. |
 | `rotate` | boolean | `false` | Must be true to replace an existing client (`client_exists`, 409, otherwise). |
 
 `client_id`, `tenant_id`, and `service_code` may contain only letters, digits, `.`, `-`, and `_` (400 otherwise).
 
-The response is a Markdown file (`Content-Type: text/markdown; charset=utf-8`, `Content-Disposition: attachment; filename="<client_id>-quotakit.md"`, `Cache-Control: no-store`). It contains the plaintext client key, the client's configuration (including the numeric `service_id`, Service kind and mode, Quota, metering mode, and configured children), and the call sequence permitted for its role. The key is shown only in this response. With `rotate: true` the new key replaces the old one in the same transaction, so the old key is rejected immediately; the client's tenant, Service, and role are also set to the values in the request. Tokens already issued remain valid, because tokens are bound to the `client_id`, not the key.
+The response is a Markdown file (`Content-Type: text/markdown; charset=utf-8`, `Content-Disposition: attachment; filename="<client_id>-quotakit.md"`, `Cache-Control: no-store`). It opens with the user ID rule, quoting the business system's `subject_id_definition`, which also appears in the JSON values. It contains the plaintext client key, the client's configuration (including the numeric `service_id`, Service kind and mode, Quota, metering mode, and configured children), and the call sequence permitted for its role. The key is shown only in this response. With `rotate: true` the new key replaces the old one in the same transaction, so the old key is rejected immediately; the client's tenant, Service, and role are also set to the values in the request. Tokens already issued remain valid, because tokens are bound to the `client_id`, not the key.
 
 ## Flows
 

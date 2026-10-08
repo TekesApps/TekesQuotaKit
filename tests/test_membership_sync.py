@@ -15,6 +15,7 @@ ADMIN_KEY = "member-sync-admin-key-for-tests-000000001"
 SECRET = "member-sync-token-secret-for-tests-00001"
 TENANT = "shukang-zhiyi"
 ADMIN = {"Authorization": f"Bearer {ADMIN_KEY}"}
+DEFINITION = "数康智医 resident_users.id（住户表主键）"
 
 
 def setup(tmp_path):
@@ -37,6 +38,7 @@ def provision(client, client_id, role, service_code=""):
             "service_code": service_code,
             "role": role,
             "base_url": "http://127.0.0.1:9460",
+            "subject_id_definition": DEFINITION,
         },
     )
     assert response.status_code == 200, response.text
@@ -179,3 +181,38 @@ def test_both_contracts_lead_with_the_same_user_id_rule(tmp_path):
     assert rule(member_guide) == rule(service_guide)
     assert "same ID everywhere" in rule(service_guide) and "no_level" in rule(service_guide)
     assert member_values["subject_id_rule"] == service_values["subject_id_rule"]
+
+
+def test_contracts_quote_the_operator_definition_and_require_one(tmp_path):
+    kit, client = setup(tmp_path)
+    body = {"tenant_id": TENANT, "role": "membership", "base_url": "http://127.0.0.1:9460"}
+    missing = client.post("/v1/admin/clients/first/provision", headers=ADMIN, json=body)
+    assert missing.status_code == 400 and "用户 ID 定义" in missing.json()["detail"]
+    with kit.sessions() as db:
+        assert db.scalar(select(Client).where(Client.client_id == "first")) is None
+
+    member_guide, member_values = provision(client, "shukang-members", "membership")
+    assert f"> {DEFINITION}" in member_guide
+    assert member_values["subject_id_definition"] == DEFINITION
+    # Later credentials reuse the stored definition without re-entering it.
+    reused = client.post(
+        "/v1/admin/clients/wecom-door/provision",
+        headers=ADMIN,
+        json={**body, "role": "consumer", "service_code": "door_open"},
+    )
+    assert reused.status_code == 200 and f"> {DEFINITION}" in reused.text
+    listed = client.get("/v1/admin/tenants", headers=ADMIN).json()["items"]
+    assert [i["subject_id_definition"] for i in listed if i["tenant_id"] == TENANT] == [DEFINITION]
+    # Supplying a new definition updates it for the whole business system.
+    changed = client.post(
+        "/v1/admin/clients/wecom-door/provision",
+        headers=ADMIN,
+        json={
+            **body,
+            "role": "consumer",
+            "service_code": "door_open",
+            "rotate": True,
+            "subject_id_definition": "users.id",
+        },
+    )
+    assert "> users.id" in changed.text

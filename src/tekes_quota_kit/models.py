@@ -33,6 +33,9 @@ class Tenant(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # What `subject_id` means in this business system, written by an operator, e.g.
+    # "数康智医 resident_users.id". Every client contract of the tenant quotes it.
+    subject_id_definition: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
 
