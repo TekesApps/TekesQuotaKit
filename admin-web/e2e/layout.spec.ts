@@ -109,3 +109,57 @@ test('sets the user ID definition, issues and deletes a member-sync credential',
   await expect(page.getByRole('status')).toContainText('已删除凭据 e2e-members');
   await expect(page.locator('tbody tr').filter({ hasText: 'e2e-members' })).toHaveCount(0);
 });
+
+test('disabled controls look alike, and rotation downloads without a form', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  const field = (scope: string, label: string) => page.locator(`${scope} label`).filter({ hasText: label }).locator('input');
+
+  await page.getByRole('button', { name: '业务系统', exact: true }).click();
+  const definition = field('.main form', '用户 ID 定义');
+  if (!(await definition.inputValue())) {
+    await definition.fill('user_table.id');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('已保存');
+  }
+
+  // The member-sync form has a locked role (disabled antd Select) and a locked definition
+  // (disabled input). Both must share antd's disabled background, text colour and border.
+  await page.getByRole('button', { name: '客户端凭据' }).click();
+  await page.getByRole('button', { name: '签发会员同步凭据' }).click();
+  const looks = await page.evaluate(() => [...document.querySelectorAll('.drawer-panel label')].flatMap(label => {
+    const select = label.querySelector<HTMLElement>('.ant-select.ant-select-disabled');
+    const input = label.querySelector<HTMLInputElement>(':scope > input:disabled');
+    const box = select || input;
+    if (!box) return [];
+    const css = getComputedStyle(box);
+    const textEl = select ? (select.querySelector('.ant-select-content') as HTMLElement) || select : input!;
+    return [{ field: label.firstChild?.textContent?.trim(), kind: select ? 'select' : 'input', background: css.backgroundColor, border: css.borderTopColor, color: getComputedStyle(textEl).color, cursor: css.cursor }];
+  }));
+  expect(looks.map(l => l.kind).sort()).toEqual(['input', 'select']);
+  const [first, ...rest] = looks;
+  for (const look of looks) expect(look.cursor, `${look.field} cursor`).toBe('not-allowed');
+  for (const look of rest) {
+    expect({ background: look.background, border: look.border, color: look.color }, `${look.field} vs ${first.field}`)
+      .toEqual({ background: first.background, border: first.border, color: first.color });
+  }
+
+  // Issue, then rotate: rotation asks once and downloads straight away, with no form.
+  await field('.drawer-panel', 'Client ID').fill('e2e-rotate');
+  let download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '生成并下载' }).click();
+  await download;
+  const row = page.locator('tbody tr').filter({ hasText: 'e2e-rotate' });
+  let prompt = '';
+  page.once('dialog', dialog => { prompt = dialog.message(); void dialog.accept(); });
+  download = page.waitForEvent('download');
+  await row.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '轮换密钥' }).click();
+  const file = await download;
+  expect(prompt).toContain('旧密钥立即失效');
+  expect(file.suggestedFilename()).toBe('e2e-rotate-quotakit.md');
+  await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('已轮换 e2e-rotate');
+});

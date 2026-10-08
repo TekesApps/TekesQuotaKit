@@ -8,6 +8,18 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Rotating a credential no longer opens a form, since nothing in it can change. 轮换密钥 asks for
+  confirmation and downloads the new contract directly, using the default API address
+  `http://127.0.0.1:9460`. The issue forms lose their rotate checkbox.
+
+### Fixed
+
+- Disabled text inputs, such as a locked user ID definition, looked editable: the copied
+  stylesheet forced a white background and normal text on every input. They now use antd's
+  disabled colours and cursor, and a browser test checks they match a disabled antd Select.
+
 ## [0.7.1] - 2026-10-08
 
 ### Changed
