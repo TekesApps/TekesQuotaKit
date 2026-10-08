@@ -36,3 +36,19 @@
 .admin-shell label {
   align-content: start;
 }
+
+/*
+ * Disabled native inputs must look like disabled antd controls. admin.css gives every input a
+ * white background and the normal text colour, which hid the disabled state: a locked Client ID
+ * or user ID definition looked editable next to greyed-out antd selects. These values are antd's
+ * disabled tokens (colorBgContainerDisabled, colorTextDisabled); the layout test compares them
+ * with a disabled antd Select in the same form.
+ */
+.admin-shell label > input:disabled {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.25);
+  -webkit-text-fill-color: rgba(0, 0, 0, 0.25);
+  border-color: #d9d9d9;
+  cursor: not-allowed;
+  opacity: 1;
+}

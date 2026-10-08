@@ -163,6 +163,8 @@ export function AssignmentsPage(props: PageProps) {
   }} />;
 }
 
+const DEFAULT_BASE_URL = 'http://127.0.0.1:9460';
+
 type TenantItem = { tenant_id: string; name: string | null; subject_id_definition: string | null };
 
 export function BusinessPage({ tenant, revision, onChanged }: PageProps) {
@@ -207,6 +209,20 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   }, [tenant, revision]);
   const open = (row: Row) => setForm({ ...row, subject_id_definition: definition });
   const [error, setError] = useState('');
+  // Nothing in a rotation is editable (the client keeps its Service, role and the business
+  // system's definition), so confirm and download straight away.
+  async function rotate(row: Row) {
+    const id = String(row.client_id);
+    if (!window.confirm(`轮换 ${id} 的密钥？\n旧密钥立即失效，使用它的后台需要换上新密钥。确认后会下载新的接入说明。`)) return;
+    setError('');
+    try {
+      await download(`/clients/${enc(id)}/provision`, {
+        tenant_id: tenant, role: row.role, rotate: true, base_url: DEFAULT_BASE_URL,
+        service_code: row.role === 'membership' ? '' : row.service_code,
+      }, `${id}-quotakit.md`);
+      onChanged(`已轮换 ${id} 的密钥并下载新的接入说明`);
+    } catch (e) { setError(e instanceof Error ? e.message : '轮换失败'); }
+  }
   async function remove(row: Row) {
     const id = String(row.client_id);
     const typed = window.prompt(`删除后这把密钥立即失效，使用它的后台会收到 401。\n请输入 Client ID“${id}”确认删除：`);
@@ -223,7 +239,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     column('service_code', { render: row => row.role === 'membership' ? <span className="muted">不绑定（会员同步）</span> : <span className="code">{text(row.service_code)}</span> }),
     column('role'),
     { key: '_actions', title: '操作', render: row => <Actions items={[
-      { label: '轮换密钥', danger: true, action: () => open({ ...row, rotate: true, base_url: 'http://127.0.0.1:9460' }) },
+      { label: '轮换密钥', danger: true, action: () => void rotate(row) },
       { label: '删除', danger: true, action: () => void remove(row) },
     ]} /> },
   ];
@@ -238,24 +254,22 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步')], hint: '只能维护会员名单，不调用服务' },
     definitionField,
     { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
-    { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
   ] : [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'wecom-door' },
     { name: 'service_code', label: 'Service', required: true, key: true, options: services },
     { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方')] },
     definitionField,
     { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
-    { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: 'http://127.0.0.1:9460' })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: 'http://127.0.0.1:9460' })}>签发服务凭据</button></div></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
     {error && <div className="error-box" role="alert">{error}</div>}
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
-    {form && <Editor key={membership ? 'membership' : 'service'} title={form.rotate && form.client_id ? `轮换 ${text(form.client_id)}` : membership ? '签发会员同步凭据' : '签发服务凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={Boolean(form.rotate && form.client_id)}
+    {form && <Editor key={membership ? 'membership' : 'service'} title={membership ? '签发会员同步凭据' : '签发服务凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={false}
       onSave={async d => {
         const id = required(d.client_id, 'Client ID');
-        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: d.rotate, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
+        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: false, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
         onChanged(`已为 ${id} 生成密钥并下载接入说明`);
       }}
       onClose={() => setForm(null)} />}
