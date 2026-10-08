@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -232,3 +233,42 @@ class Ledger(Base):
         UniqueConstraint("token_hash", "event_type", name="uq_tq_ledger_token_event"),
         Index("ix_tq_ledger_subject", "tenant_id", "subject_id", "quota_code", "period_start"),
     )
+
+
+class AdminUser(Base):
+    """Operator account for the web administration console. Not tenant scoped."""
+
+    __tablename__ = "tq_admin_users"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+
+
+class AdminSession(Base):
+    __tablename__ = "tq_admin_sessions"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    admin_user_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    __table_args__ = (
+        ForeignKeyConstraint(["admin_user_id"], ["tq_admin_users.id"]),
+        Index("ix_tq_admin_session_user", "admin_user_id"),
+    )
+
+
+class AdminLoginAttempt(Base):
+    __tablename__ = "tq_admin_login_attempts"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    attempted_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    __table_args__ = (Index("ix_tq_admin_login_attempt", "username", "attempted_at"),)

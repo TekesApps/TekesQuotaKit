@@ -68,16 +68,17 @@ uv run tekes-quota-kit generate-secrets   # paste both values into .env
 # Set TEKES_QUOTA_DATABASE_URL in .env, then export the variables:
 set -a; source .env; set +a
 uv run tekes-quota-kit init-schema
+uv run tekes-quota-kit admin-user add --username admin   # prompts for a password
 uv run tekes-quota-kit serve
 ```
 
-Open `http://127.0.0.1:9460/admin` for the web admin and `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
+Open `http://127.0.0.1:9460/admin` and sign in for the web admin, and `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
 
-TekesQuotaKit creates only `tq_` tables, so it can share your application's existing schema; a separate database is optional. It never creates, alters, or owns your application's user table: `subject_id` is your existing numeric user ID. `init-schema` creates missing `tq_` tables only. It does not create the database, alter existing tables, or seed data. For a reviewed fresh MySQL install, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. Installs created before 0.2.0 must apply [migrations/add_composite_services_mysql.sql](migrations/add_composite_services_mysql.sql) once, after a backup; `init-schema` will not perform that upgrade. Never run both fresh creation methods on the same schema.
+TekesQuotaKit creates only `tq_` tables, so it can share your application's existing schema; a separate database is optional. It never creates, alters, or owns your application's user table: `subject_id` is your existing numeric user ID. `init-schema` creates missing `tq_` tables only. It does not create the database, alter existing tables, or seed data. For a reviewed fresh MySQL install, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. Installs created before 0.2.0 must apply [migrations/add_composite_services_mysql.sql](migrations/add_composite_services_mysql.sql) once, after a backup; `init-schema` will not perform that upgrade. Upgrading a 0.2.x install to web admin accounts only adds tables: run `init-schema` or apply [migrations/add_admin_accounts_mysql.sql](migrations/add_admin_accounts_mysql.sql). Never run both fresh creation methods on the same schema.
 
 ## First integration
 
-Admin calls use `Authorization: Bearer $TEKES_QUOTA_ADMIN_KEY`. All admin configuration endpoints are idempotent `PUT`s.
+Each step below can be done in the web admin. Scripts call the same endpoints with `Authorization: Bearer $TEKES_QUOTA_ADMIN_KEY`. All admin configuration endpoints are idempotent `PUT`s.
 
 1. Create a Quota:
    `PUT /v1/admin/tenants/demo-tenant/quotas/exports` `{"unit_code":"use","metering_mode":"per_use"}`
@@ -107,6 +108,7 @@ Admin calls use `Authorization: Bearer $TEKES_QUOTA_ADMIN_KEY`. All admin config
 
 - `TEKES_QUOTA_ADMIN_KEY`, `TEKES_QUOTA_TOKEN_SECRET`, and every client key must be at least 32 characters. Use `generate-secrets`.
 - Client keys are server credentials. Never ship them, or the admin key, in a browser, mobile app, or miniapp bundle.
+- Web admin accounts use PBKDF2-SHA256 password hashes (600,000 rounds), an HttpOnly `SameSite=Strict` session cookie scoped to the admin API path and valid for 12 hours, and a lock of 15 minutes after 5 failed sign-ins for a username. Cookie-authenticated writes must send `X-Admin-Request: 1`, which a cross-site page cannot do.
 - The server binds to `127.0.0.1:9460` by default. Expose it only through a TLS reverse proxy on a trusted network.
 - Keep `TEKES_QUOTA_TOKEN_SECRET` stable. Tokens are derived from it, so changing it breaks idempotent retries of every earlier `request_key`. There is no rotation procedure.
 - `use`, `refund`, `status`, and `quota` take the subject from a trusted `X-Subject-ID` header that your backend sets from its own authentication. Settlement and `stop` resolve the subject from the token.
@@ -115,9 +117,19 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a deployment ch
 
 ## Web admin
 
-`GET /admin` serves a single-page dashboard. You enter the admin key in the page; it is kept only in the current tab's memory. The dashboard lists all 11 `tq_` tables, scoped by tenant and paginated, and hides credential and token hashes. Quotas, Levels, Limits, Services, parent-child memberships, and assignments are edited through the same validated admin API. Usage, tokens, token items, and the ledger are read-only.
+`GET /admin` serves a React console (source in [admin-web/](admin-web/)). It opens on a sign-in page; operators sign in with a web admin account created by `tekes-quota-kit admin-user add`. After sign-in, a collapsible sidebar groups the pages:
 
-Under **Client credentials**, choose a Client ID, Service, role, and the API base URL the client will use. The admin generates a random key, stores only its hash, and downloads a Markdown integration contract containing the plaintext key, binding, Service settings, child mappings, and the relevant API sequence. This download is the only time the plaintext key is available. Re-provisioning an existing Client ID requires the explicit **rotate** option, which immediately invalidates the old key. Keep the downloaded file out of Git and out of client-side code.
+| Group | Pages |
+| --- | --- |
+| Rules | Services, composite members, Quotas, Levels, limit rules |
+| Subjects and access | Subject levels, client credentials |
+| Runtime data (read-only) | Usage, tokens, session items, ledger |
+
+Pick or type a tenant in the header. Edits go through the same validated admin API that scripts use. Credential and token hashes are never shown.
+
+Under **Client credentials**, choose a Client ID, Service, role, and the API base URL the client will use. The console generates a random key, stores only its hash, and downloads a Markdown integration contract containing the plaintext key, binding, Service settings, child mappings, and the relevant API sequence. This download is the only time the plaintext key is available. **Rotate** on an existing client immediately invalidates the old key. Keep the downloaded file out of Git and out of client-side code.
+
+The console works at `/admin` or behind a reverse proxy path prefix such as `/user-quota/admin`; see [docs/deployment.md](docs/deployment.md).
 
 ## CLI
 
@@ -127,6 +139,9 @@ Under **Client credentials**, choose a Client ID, Service, role, and the API bas
 | `tekes-quota-kit init-schema` | Create missing `tq_` tables in `TEKES_QUOTA_DATABASE_URL`. |
 | `tekes-quota-kit expire-sessions [--limit N]` | Persist the `expired` state for durable sessions past their expiry (default limit 500 per run). Intended for cron. |
 | `tekes-quota-kit generate-secrets` | Print a new admin key and token secret. Needs no database. |
+| `tekes-quota-kit admin-user add\|passwd --username NAME [--password-stdin]` | Create a web admin account or change its password. Prompts twice unless `--password-stdin` reads one line. Passwords need 12 or more characters. A password change signs out the account's sessions. |
+| `tekes-quota-kit admin-user disable\|enable --username NAME` | Disable an account and sign out its sessions, or re-enable it. |
+| `tekes-quota-kit admin-user list` | List accounts, status, and last sign-in. |
 
 Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKES_QUOTA_TOKEN_SECRET` from the environment; `serve` also needs `TEKES_QUOTA_ADMIN_KEY`.
 
@@ -147,7 +162,13 @@ uv run pytest
 uv run ruff check .
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the optional MySQL integration tests and pull request guidelines.
+The web admin lives in `admin-web/`. Its build output is committed under `src/tekes_quota_kit/admin_assets/` so the Python package needs no Node at install time:
+
+```bash
+cd admin-web && npm ci && npm run build
+```
+
+For live editing, run `npm run dev` there; it proxies `/v1` to a Kit on `127.0.0.1:9460`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the optional MySQL integration tests and pull request guidelines.
 
 ## Documentation
 
