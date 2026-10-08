@@ -1,5 +1,5 @@
 export type Row = Record<string, unknown>;
-export type User = { username: string | null; expires_at?: string; via: 'session' | 'admin_key' };
+export type User = { username: string | null; expires_at?: string; via: 'session' | 'admin_key'; version?: string };
 
 export const text = (value: unknown) => value == null || value === '' ? '—' : String(value);
 

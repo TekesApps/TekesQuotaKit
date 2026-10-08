@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from . import __version__
 from .admin_auth import (
     COOKIE,
     SESSION_TTL,
@@ -570,13 +571,14 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             samesite="strict",
         )
         response.headers.update(NO_STORE)
-        return {"data": accounts.session_user(token)}
+        return {"data": {**accounts.session_user(token), "via": "session", "version": __version__}}
 
     @router.get("/v1/admin/session")
     # `require_admin` is a closure, which postponed annotations cannot resolve inside
     # Annotated[...]; a default-argument dependency avoids that.
     def session(user: dict = Depends(require_admin)) -> dict:  # noqa: B008
-        return {"data": user}
+        # The console shows the version that is actually running.
+        return {"data": {**user, "version": __version__}}
 
     @router.post("/v1/admin/session/logout")
     def logout(

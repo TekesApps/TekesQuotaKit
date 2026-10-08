@@ -217,3 +217,18 @@ def test_register_business_system_and_list_it(env):
     )
     assert client.put("/v1/admin/tenants/ok", json={"name": "  "}, headers=GUARD).status_code == 400
     assert client.put("/v1/admin/tenants/ok", json={"name": "x"}).status_code == 403
+
+
+def test_session_reports_the_installed_version(env):
+    import re
+    from pathlib import Path
+
+    from tekes_quota_kit import __version__
+
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    declared = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+    assert __version__ == declared
+    _kit, _accounts, client = env
+    assert login(client).json()["data"]["version"] == declared
+    assert client.get("/v1/admin/session").json()["data"]["version"] == declared
+    assert client.get("/openapi.json").json()["info"]["version"] == declared

@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+// The console shows the running server's version, whose only source is pyproject.toml.
+const version = /^version = "([^"]+)"/m.exec(readFileSync(new URL('../../pyproject.toml', import.meta.url), 'utf8'))![1];
 
 // Guards against controls whose text is clipped or misaligned. The Shukang admin stylesheet
 // styles every bare <input>, which once made antd's inner inputs taller than their frames.

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 // Collapsible sidebar and navigation sections, following skzy-admin's sidebar (v0.2.4–v0.2.5).
 export type NavigationGroup = { label: string; standalone?: boolean; items: string[][] };
 
-type Props = { groups: NavigationGroup[]; section: string; onNavigate: (section: string) => void; onCollapse: (collapsed: boolean) => void };
+type Props = { groups: NavigationGroup[]; section: string; version?: string; onNavigate: (section: string) => void; onCollapse: (collapsed: boolean) => void };
 
 const SIDEBAR_KEY = 'tq-admin-sidebar-collapsed';
 const GROUPS_KEY = 'tq-admin-nav-collapsed-groups';
@@ -15,7 +15,7 @@ function savedCollapsedGroups(): string[] {
   } catch { return []; }
 }
 
-export function Sidebar({ groups, section, onNavigate, onCollapse }: Props) {
+export function Sidebar({ groups, section, version, onNavigate, onCollapse }: Props) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
   });
@@ -30,7 +30,7 @@ export function Sidebar({ groups, section, onNavigate, onCollapse }: Props) {
   const toggleGroup = (label: string) => setCollapsedGroups(current => current.includes(label) ? current.filter(item => item !== label) : [...current, label]);
   return <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''}`} aria-label="管理导航">
     <div className="sidebar-heading"><div className="wordmark"><span aria-hidden="true">✳</span><span className="sidebar-name"> TekesQuotaKit</span></div><button className="sidebar-toggle" type="button" aria-label={collapsed ? '展开侧栏' : '收起侧栏'} title={collapsed ? '展开侧栏' : '收起侧栏'} aria-expanded={!collapsed} aria-controls="admin-sidebar-navigation" onClick={() => setCollapsed(value => !value)}><svg className="sidebar-arrow" style={{ transform: collapsed ? 'rotate(180deg)' : undefined }} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 6 6 12l6 6M18 6l-6 6 6 6" /></svg></button></div>
-    <div className="aside-caption" hidden={collapsed}>配额管理平台 <span className="app-version">v{__APP_VERSION__}</span></div>
+    <div className="aside-caption" hidden={collapsed}>配额管理平台{version && <>{' '}<span className="app-version">v{version}</span></>}</div>
     <nav id="admin-sidebar-navigation" hidden={collapsed}>{groups.map(group => {
       const expanded = !collapsedGroups.includes(group.label);
       const contentId = `nav-section-${group.items[0][0]}`;

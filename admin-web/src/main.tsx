@@ -98,7 +98,7 @@ function App() {
   const title = tenants && !tenant ? '设置业务系统' : navigation.flatMap(group => group.items).find(([key]) => key === section)?.[1] || '配额管理';
   const props: PageProps = { tenant, revision, onChanged: changed };
   const name = user.username || '管理员密钥';
-  return <div className={`admin-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}><Sidebar groups={navigation} section={section} onCollapse={setSidebarCollapsed} onNavigate={go} />
+  return <div className={`admin-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}><Sidebar groups={navigation} section={section} version={user.version} onCollapse={setSidebarCollapsed} onNavigate={go} />
     <div className="workspace"><header className="workspace-header"><span>配额管理 <span className="muted"> / {title}</span></span><div>{tenant && <TenantSwitch items={registered} value={tenant} onChange={changeTenant} />}<span className="avatar">{name.slice(0, 1).toUpperCase()}</span>{name}<button className="ghost" disabled={busy} onClick={() => void logout()}>退出</button></div></header>
       <main className="main"><div className="topbar"><div><p className="eyebrow">{tenant ? `BUSINESS · ${tenant}` : 'SETUP'}</p><h1>{title}</h1></div><button className="secondary" onClick={() => { setRevision(r => r + 1); setNotice(''); }}>刷新</button></div>
         {error && <div className="error-box" role="alert">{error}</div>}{notice && <p className="notice" role="status">{notice}</p>}
