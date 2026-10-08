@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import sys
 from datetime import timedelta
+from urllib.parse import urljoin, urlparse
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -33,6 +35,23 @@ def setup(tmp_path):
 
 def admin_headers():
     return {"Authorization": f"Bearer {ADMIN_KEY}"}
+
+
+def test_admin_page_works_behind_a_path_prefix(tmp_path):
+    _kit, client = setup(tmp_path)
+    page = client.get("/admin").text
+    assets = re.findall(r'(?:src|href)="([^"]+)"', page)
+    assert sorted(assets) == ["admin/app.css", "admin/app.js"]
+    # A proxy maps /<prefix>/admin to /admin; relative assets must stay under the prefix.
+    for prefix in ("", "/user-quota", "/a/b"):
+        for asset in assets:
+            public = urlparse(urljoin(f"https://quota.example.com{prefix}/admin", asset)).path
+            assert public.startswith(f"{prefix}/admin/")
+            assert client.get(public.removeprefix(prefix)).status_code == 200
+    script = client.get("/admin/app.js").text
+    assert script.count("fetch(") == 1
+    assert "fetch(base+path" in script
+    assert "location.pathname.replace(/\\/admin\\/?$/, '')" in script
 
 
 def test_admin_lists_all_tables_and_scopes_token_items(tmp_path):

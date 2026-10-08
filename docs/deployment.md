@@ -147,6 +147,34 @@ server {
 
 `/docs` and `/openapi.json` are also served without authentication. Restrict them the same way if you do not want the API surface published.
 
+### Admin page under a path prefix
+
+The admin page can share a host with another application, for example at `https://api.example.com/user-quota/admin`. Its stylesheet and script use relative URLs, and the script derives the prefix from the page path, so the proxy only has to strip the prefix. The page must be opened without a trailing slash; the first block below redirects `/user-quota/admin/` for that reason.
+
+```nginx
+# Inside the existing server block, before "location /".
+location = /user-quota/admin/ { return 301 /user-quota/admin; }
+location = /user-quota/admin { proxy_pass http://127.0.0.1:9460/admin; include /etc/nginx/user-quota-proxy.conf; }
+location ^~ /user-quota/admin/ { proxy_pass http://127.0.0.1:9460/admin/; include /etc/nginx/user-quota-proxy.conf; }
+location ^~ /user-quota/v1/admin/ { proxy_pass http://127.0.0.1:9460/v1/admin/; include /etc/nginx/user-quota-proxy.conf; }
+# Consumer endpoints are not published here; trusted backends call 127.0.0.1:9460 directly.
+location ^~ /user-quota/ { return 404; }
+```
+
+`/etc/nginx/user-quota-proxy.conf`:
+
+```nginx
+allow 203.0.113.10;   # operator network or VPN egress
+deny all;
+proxy_http_version 1.1;
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Proto https;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+The admin key is the only credential the page checks, and the admin API has no rate limit. Keep an IP allowlist or `auth_basic` in front of it.
+
 ### Container
 
 A minimal image:

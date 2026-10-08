@@ -10,10 +10,12 @@
     member: {label:'组合成员',path:v=>`/v1/admin/tenants/${encodeURIComponent(v.tenant)}/services/${encodeURIComponent(v.parent)}/members/${encodeURIComponent(v.child)}`,fields:[['parent','父 Service code','text'],['child','子 Service code','text'],['max_uses','本场最多次数（留空为不限）','number']],body:v=>({max_uses:v.max_uses===''?null:Number(v.max_uses)})},
     assignment: {label:'用户等级',path:v=>`/v1/admin/tenants/${encodeURIComponent(v.tenant)}/subjects/${encodeURIComponent(v.subject_id)}/level`,fields:[['subject_id','用户 ID','number'],['level_code','Level code','text'],['effective_at','生效时间（ISO，可留空）','text'],['expires_at','到期时间（ISO，可留空）','text'],['renew_term','开启新会期','checkbox']],body:v=>({level_code:v.level_code,effective_at:v.effective_at||null,expires_at:v.expires_at||null,renew_term:v.renew_term})}
   };
+  // Mount prefix in front of /admin, e.g. '/user-quota' behind a reverse proxy; empty when served at /admin.
+  const base = location.pathname.replace(/\/admin\/?$/, '');
   const api = async (path,options={}) => {
     const key=$('admin-key').value.trim();
     if (!key) throw Error('请输入管理员密钥');
-    const response=await fetch(path,{...options,headers:{Authorization:`Bearer ${key}`,...(options.body?{'Content-Type':'application/json'}:{})},cache:'no-store'});
+    const response=await fetch(base+path,{...options,headers:{Authorization:`Bearer ${key}`,...(options.body?{'Content-Type':'application/json'}:{})},cache:'no-store'});
     if (!response.ok) throw Error(`${response.status}: ${await response.text()}`);
     return response;
   };
