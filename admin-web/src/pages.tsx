@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api, download, enc } from './api';
 import { Actions, Editor, Pager, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
 import { columnNames, type Row, text, time } from './types';
@@ -165,27 +165,39 @@ export function AssignmentsPage(props: PageProps) {
 
 export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const [offset, setOffset] = useState(0), [form, setForm] = useState<Row | null>(null);
+  // The business system's stored user ID definition, prefilled so every credential quotes the same one.
+  const [definition, setDefinition] = useState('');
+  useEffect(() => {
+    api<{ items: { tenant_id: string; subject_id_definition: string | null }[] }>('/tenants')
+      .then(r => setDefinition(r.items.find(t => t.tenant_id === tenant)?.subject_id_definition || ''))
+      .catch(() => setDefinition(''));
+  }, [tenant, revision]);
+  const open = (row: Row) => setForm({ ...row, subject_id_definition: definition });
   const result = useTable('tq_clients', tenant, revision, offset);
   const services = useCodes('tq_services', 'service_code', tenant, revision);
   const columns: Column[] = [
-    ...['client_id', 'service_code', 'role'].map(k => column(k)),
-    { key: '_actions', title: '操作', render: row => <Actions items={[{ label: '轮换密钥', danger: true, action: () => setForm({ ...row, rotate: true, base_url: 'http://127.0.0.1:9460' }) }]} /> },
+    column('client_id'),
+    column('service_code', { render: row => row.role === 'membership' ? <span className="muted">不绑定（会员同步）</span> : <span className="code">{text(row.service_code)}</span> }),
+    column('role'),
+    { key: '_actions', title: '操作', render: row => <Actions items={[{ label: '轮换密钥', danger: true, action: () => open({ ...row, rotate: true, base_url: 'http://127.0.0.1:9460' }) }]} /> },
   ];
   const fields: Field[] = [
-    { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'measurement-backend' },
-    { name: 'service_code', label: 'Service', required: true, key: true, options: services },
-    { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方')] },
+    { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'wecom-door' },
+    { name: 'role', label: '角色', required: true, key: true, options: [option('consumer', '准入+执行'), option('issuer', '准入方'), option('provider', '执行方'), option('membership', '会员同步')], hint: '会员同步：只能维护会员名单，不调用服务' },
+    { name: 'service_code', label: 'Service', key: true, options: services, hint: '会员同步凭据不需要选' },
+    { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id', hint: '按业务系统实际情况填写：subject_id 是哪张表的哪个整数字段。会写进接入说明，并供本业务系统所有凭据共用' },
     { name: 'base_url', label: 'API 地址', required: true, hint: '同机调用填 http://127.0.0.1:9460' },
     { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><button onClick={() => setForm({ role: 'consumer', base_url: 'http://127.0.0.1:9460' })}>签发凭据</button></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">每个服务签发一份“准入+执行”凭据，另签发一份“会员同步”凭据用来维护会员名单。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><button onClick={() => open({ role: 'consumer', base_url: 'http://127.0.0.1:9460' })}>签发凭据</button></div>
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
     {form && <Editor title={form.rotate && form.client_id ? `轮换 ${text(form.client_id)}` : '签发客户端凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={Boolean(form.rotate && form.client_id)}
       onSave={async d => {
         const id = required(d.client_id, 'Client ID');
-        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: d.rotate }, `${id}-quotakit.md`);
+        if (d.role !== 'membership') required(d.service_code, 'Service');
+        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: d.rotate, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
         onChanged(`已为 ${id} 生成密钥并下载接入说明`);
       }}
       onClose={() => setForm(null)} />}

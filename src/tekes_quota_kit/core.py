@@ -33,6 +33,12 @@ def _valid_subject(subject: int) -> bool:
     return type(subject) is int and 0 < subject <= MAX_SUBJECT_ID
 
 
+MEMBERSHIP_ROLE = "membership"
+# Membership clients are not bound to a Service; tq_clients.service_code stores this placeholder.
+MEMBERSHIP_SERVICE = "*"
+CLIENT_ROLES = {"issuer", "provider", "consumer", MEMBERSHIP_ROLE}
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -122,10 +128,12 @@ class QuotaKit:
         return hashlib.sha256(key.encode()).hexdigest()
 
     def client(self, key: str, role: str) -> Client:
+        # `consumer` covers issuer and provider endpoints only; member sync needs its own role.
+        allowed = {role} if role == MEMBERSHIP_ROLE else {role, "consumer"}
         with self.sessions() as db:
             client = db.scalar(select(Client).where(Client.key_hash == self.key_hash(key)))
             _require(
-                client is not None and client.role in {role, "consumer"},
+                client is not None and client.role in allowed,
                 "unauthorized",
                 "Invalid client credential",
                 401,
@@ -135,9 +143,9 @@ class QuotaKit:
     def put_client(
         self, client_id: str, key: str, tenant_id: str, service_code: str, role: str
     ) -> None:
-        _require(
-            role in {"issuer", "provider", "consumer"}, "invalid_role", "Invalid client role", 400
-        )
+        _require(role in CLIENT_ROLES, "invalid_role", "Invalid client role", 400)
+        if role == MEMBERSHIP_ROLE:
+            service_code = MEMBERSHIP_SERVICE
         _require(
             len(key) >= 32, "weak_client_key", "Client key must be at least 32 characters", 400
         )
@@ -161,20 +169,25 @@ class QuotaKit:
         role: str,
         *,
         rotate: bool = False,
-    ) -> tuple[str, Service]:
-        """Generate a client key; only its hash is persisted."""
-        _require(
-            role in {"issuer", "provider", "consumer"}, "invalid_role", "Invalid client role", 400
-        )
+    ) -> tuple[str, Service | None]:
+        """Generate a client key; only its hash is persisted.
+
+        A `membership` client maintains the member list and is not bound to a Service, so it
+        returns no Service and stores the placeholder `*`.
+        """
+        _require(role in CLIENT_ROLES, "invalid_role", "Invalid client role", 400)
         key = secrets.token_urlsafe(48)
         with self.sessions.begin() as db:
-            service = db.scalar(
-                select(Service).where(
-                    Service.tenant_id == tenant_id,
-                    Service.service_code == service_code,
+            if role == MEMBERSHIP_ROLE:
+                service, service_code = None, MEMBERSHIP_SERVICE
+            else:
+                service = db.scalar(
+                    select(Service).where(
+                        Service.tenant_id == tenant_id,
+                        Service.service_code == service_code,
+                    )
                 )
-            )
-            _require(service is not None, "unknown_service", "Service not found", 404)
+                _require(service is not None, "unknown_service", "Service not found", 404)
             row = db.scalar(select(Client).where(Client.client_id == client_id).with_for_update())
             _require(
                 row is None or rotate,
@@ -189,7 +202,8 @@ class QuotaKit:
             row.service_code = service_code
             row.role = role
             db.flush()
-            db.expunge(service)
+            if service is not None:
+                db.expunge(service)
         return key, service
 
     def put_quota(self, tenant: str, code: str, unit: str, mode: str) -> None:
@@ -445,6 +459,39 @@ class QuotaKit:
                     term_end=term_end,
                 )
             )
+
+    def end_membership(self, tenant: str, subject: int) -> bool:
+        """Close the subject's current assignment now. Returns False if none was active."""
+        _require(
+            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
+        )
+        now = utc_now()
+        with self.sessions.begin() as db:
+            active = self._assignment(db, tenant, subject, now, lock=True, required=False)
+            if active is None:
+                return False
+            active.expires_at = now
+            if active.term_end is None or active.term_end > now:
+                active.term_end = now
+            return True
+
+    def membership(self, tenant: str, subject: int) -> dict | None:
+        """The subject's current assignment, or None when the subject has no active Level."""
+        _require(
+            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
+        )
+        with self.sessions() as db:
+            active = self._assignment(db, tenant, subject, utc_now(), required=False)
+            if active is None:
+                return None
+            stamp = lambda value: value.isoformat() + "Z" if value else None  # noqa: E731
+            return {
+                "level_code": active.level_code,
+                "effective_at": stamp(active.effective_at),
+                "expires_at": stamp(active.expires_at),
+                "term_start": stamp(active.term_start),
+                "term_end": stamp(active.term_end),
+            }
 
     @staticmethod
     def _level(db: Session, tenant: str, code: str) -> Level | None:

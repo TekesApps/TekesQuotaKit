@@ -86,6 +86,7 @@ def test_admin_lists_all_tables_and_scopes_token_items(tmp_path):
             "service_code": "measurement_session",
             "role": "consumer",
             "base_url": "https://quota.example.com",
+            "subject_id_definition": "Test users table primary key (users.id)",
         },
     )
     assert provisioned.status_code == 200, provisioned.text
@@ -117,6 +118,7 @@ def test_provision_download_is_one_time_and_rotation_requires_opt_in(tmp_path):
         "service_code": "measurement_session",
         "role": "consumer",
         "base_url": "https://quota.example.com",
+        "subject_id_definition": "Test users table primary key (users.id)",
     }
     first = client.post(path, headers=admin_headers(), json=payload)
     assert first.status_code == 200, first.text
@@ -169,6 +171,7 @@ def test_reported_usage_guide_matches_issuer_role(tmp_path):
             "service_code": "chat",
             "role": "issuer",
             "base_url": "https://quota.example.com",
+            "subject_id_definition": "Test users table primary key (users.id)",
         },
     )
     assert response.status_code == 200, response.text

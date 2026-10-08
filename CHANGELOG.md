@@ -8,6 +8,32 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The backup example in `docs/deployment.md` listed only the 11 tables from 0.2 and missed
+  `tq_admin_users`, `tq_admin_sessions`, `tq_admin_login_attempts` (0.3.0) and `tq_tenants`
+  (0.4.0). It now dumps the whole Kit database, or selects `tq_` tables at backup time. Tests now
+  fail if the backup commands hard-code table names or if the fresh-install DDL and the models
+  disagree on the set of tables.
+
+### Added
+
+- Member sync: a `membership` client role and `/v1/members` endpoints to set or renew, read, end,
+  and batch-import members (up to 500 per call). A business system keeps Kit's member list with its
+  own credential instead of the admin key. Provisioning such a client downloads a
+  `tekes-quotakit-membership/v1` contract listing the assignable Levels and their Limits. The
+  console offers the role as "会员同步".
+- Service client contracts now state that only users with an active Level are admitted and that
+  others get 409 `no_level`.
+- Operators write a user ID definition, such as `user_table.id`, when issuing a credential. It is
+  stored on the business system (`tq_tenants.subject_id_definition`), quoted in every contract the
+  business system issues and in their JSON as `subject_id_definition`, and prefilled for the next
+  credential. Issuing is refused until one is stored. Upgrades apply
+  `migrations/add_subject_id_definition_mysql.sql` before starting 0.6.0.
+- Both kinds of client contract open with the same user ID rule, also carried as
+  `subject_id_rule` in their JSON: the business system picks one stable positive integer per
+  person and sends it in member sync and in every Service request, with a go-live self-check.
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

@@ -189,12 +189,21 @@ def test_register_business_system_and_list_it(env):
         "/v1/admin/tenants/shukang-zhiyi", json={"name": "数康智医"}, headers=GUARD
     )
     assert created.status_code == 200
-    assert created.json() == {"tenant_id": "shukang-zhiyi", "name": "数康智医"}
+    assert created.json() == {
+        "tenant_id": "shukang-zhiyi",
+        "name": "数康智医",
+        "subject_id_definition": None,
+    }
     # A tenant used only by API scripts is listed but marked unregistered.
     client.put("/v1/admin/tenants/legacy/levels/basic", json={}, headers=GUARD)
     assert client.get("/v1/admin/tenants").json()["items"] == [
-        {"tenant_id": "legacy", "name": None, "registered": False},
-        {"tenant_id": "shukang-zhiyi", "name": "数康智医", "registered": True},
+        {"tenant_id": "legacy", "name": None, "registered": False, "subject_id_definition": None},
+        {
+            "tenant_id": "shukang-zhiyi",
+            "name": "数康智医",
+            "registered": True,
+            "subject_id_definition": None,
+        },
     ]
     renamed = client.put("/v1/admin/tenants/shukang-zhiyi", json={"name": " 数康 "}, headers=GUARD)
     assert renamed.json()["name"] == "数康"

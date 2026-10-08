@@ -27,10 +27,13 @@ Roles:
 | `issuer` | Endpoints that require `issuer` |
 | `provider` | Endpoints that require `provider` |
 | `consumer` | Both `issuer` and `provider` endpoints |
+| `membership` | Only the `/v1/members` endpoints. Not bound to a Service; `consumer` does not include it. |
 
 A client key whose role does not satisfy the endpoint is rejected exactly like an unknown key: 401 with code `unauthorized`.
 
 ### X-Subject-ID
+
+**One user ID per person, everywhere.** Kit never defines or looks up user IDs; the business system chooses which positive integer identifies a person, such as its user table's primary key. Member sync (`/v1/members`) and every Service request (`subject_id` in bodies, `X-Subject-ID` in headers) must send that same ID. Kit matches them by number only, so a member registered under one ID and served under another is rejected with 409 `no_level`. Both kinds of client contract open with this rule and carry it as `subject_id_rule`.
 
 `POST /v1/use`, `POST /v1/close`, `POST /v1/token/refund`, `POST /v1/token/status`, and `GET /v1/quota` require an `X-Subject-ID` header. Its value is the subject ID as decimal text, a positive integer no larger than 9223372036854775807 (2^63-1). A missing, zero, negative, non-numeric, or out-of-range value returns 422. For token operations the header must match the subject the token was created for, otherwise the call fails with `scope_mismatch` (403).
 
@@ -133,6 +136,10 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | POST | `/v1/token/status` | client, `provider` + `X-Subject-ID` | Read a token's state. |
 | GET | `/v1/quota` | client, `issuer` + `X-Subject-ID` | Read the subject's balance for the client's Service. |
 | GET | `/v1/tokens/unsettled` | client, `provider` | List admitted, unsettled reported-usage tokens. |
+| PUT | `/v1/members/{subject_id}` | client, `membership` | Set or renew a member's Level. |
+| GET | `/v1/members/{subject_id}` | client, `membership` | Read a member's current Level, or `null`. |
+| DELETE | `/v1/members/{subject_id}` | client, `membership` | End a membership now. |
+| POST | `/v1/members/batch` | client, `membership` | Set up to 500 members in one call. |
 | POST | `/v1/begin` | client, `provider` | Legacy alias: open a durable session (`request_key` required). |
 | POST | `/v1/close` | client, `provider` + `X-Subject-ID` | Legacy alias: close a durable session. |
 | PUT | `/v1/admin/clients/{client_id}` | admin | Create or replace a client with a caller-supplied key. |
@@ -401,6 +408,34 @@ Role: `provider`. Opens a durable session. Body: `subject_id` (strict integer), 
 
 Role: `provider`. Header: `X-Subject-ID`. Body: `{"token": "tq_..."}`. Closes a durable session opened by the same client. Response: `{"session_status": "closed", "idempotent": false}` (or `expired` if already past expiry; `"idempotent": true` if already closed). A token without a session returns `wrong_service_kind`. New integrations should use `/v1/stop`.
 
+## Member sync endpoints
+
+A business system keeps Kit's member list in step with its own memberships through one `membership` client. Issue it with `POST /v1/admin/clients/{client_id}/provision` and `"role": "membership"`; `service_code` is ignored and stored as `*`. The downloaded contract (`tekes-quotakit-membership/v1`) lists the Levels the client may assign and the Limits each grants. All calls act on the client's own tenant.
+
+Send only users who hold a membership. A user without an active Level is rejected by every Service with 409 `no_level`.
+
+### PUT /v1/members/{subject_id}
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `level_code` | string | yes | An existing Level of the tenant, else 404 `unknown_level`. |
+| `expires_at` | datetime | no | ISO 8601 with offset. Omit for no end date. Must be in the future, else 400 `invalid_expiry`. |
+| `renew_term` | bool | no, default `false` | `true` for a real purchase or renewal: starts a new term and allows a new expiry. With `false`, a different expiry for an active member returns 400 `term_change_requires_renewal`. |
+
+The membership takes effect now. Response: `{"subject_id": 42, "member": {"level_code", "effective_at", "expires_at", "term_start", "term_end"}}`. Re-sending the current state is safe.
+
+### GET /v1/members/{subject_id}
+
+Response: `{"subject_id": 42, "member": null}` when the user has no active Level, otherwise the same `member` object as above.
+
+### DELETE /v1/members/{subject_id}
+
+Ends the active membership now by closing its record; history is kept. Response: `{"subject_id": 42, "ended": true}`, or `false` when nothing was active, so it is safe to repeat. A membership that reaches `expires_at` ends by itself.
+
+### POST /v1/members/batch
+
+Body `{"items": [...]}` with 1 to 500 items, each `{"subject_id", "level_code", "expires_at", "renew_term"}`. Items are applied one by one; a failure does not undo the others. Response: `{"total": n, "failed": k, "results": [{"subject_id", "ok", "code"?, "message"?}]}`. Intended for the one-time import of existing members.
+
 ## Admin configuration endpoints
 
 All routes in this section require the admin key. Each `PUT` is an upsert and is safe to repeat with the same body.
@@ -423,16 +458,16 @@ Response: `{"client_id": "..."}`. Replacing an existing client overwrites its ke
 
 A tenant ID is the scope of every rule and client. Admin `PUT` calls may still use a new tenant ID implicitly, as scripts did before; registering it adds a display name and lets the console offer it.
 
-`PUT /v1/admin/tenants/{tenant}` with `{"name": "数康智医"}` registers the business system, or renames it if already registered. The tenant ID must match `[A-Za-z0-9._-]{1,64}`; the name must be 1–100 non-blank characters. Both errors return 400. There is no delete.
+`PUT /v1/admin/tenants/{tenant}` with `{"name": "数康智医"}` registers the business system, or renames it if already registered. An optional `subject_id_definition` sets the user ID definition quoted in client contracts; omitting it keeps the stored one. The tenant ID must match `[A-Za-z0-9._-]{1,64}`; the name must be 1–100 non-blank characters. Both errors return 400. There is no delete.
 
 `GET /v1/admin/tenants` returns:
 
 ```json
 {
-  "tenants": ["legacy", "shukang-zhiyi"],
+  "tenants": ["demo-business", "legacy"],
   "items": [
-    {"tenant_id": "legacy", "name": null, "registered": false},
-    {"tenant_id": "shukang-zhiyi", "name": "数康智医", "registered": true}
+    {"tenant_id": "demo-business", "name": "演示系统", "registered": true, "subject_id_definition": "user_table.id"},
+    {"tenant_id": "legacy", "name": null, "registered": false, "subject_id_definition": null}
   ]
 }
 ```
@@ -555,14 +590,15 @@ Creates a client with a server-generated key, or rotates the key of an existing 
 | Field | Type | Default | Constraints |
 | --- | --- | --- | --- |
 | `tenant_id` | string | | 1 to 64 characters. |
-| `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). |
-| `role` | string | | `issuer`, `provider`, or `consumer` (422 otherwise). |
+| `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). Ignored for `membership`. |
+| `role` | string | | `issuer`, `provider`, `consumer`, or `membership` (422 otherwise). |
+| `subject_id_definition` | string | stored value | Up to 500 characters, written by an operator: what `subject_id` is in this business system, for example `user_table.id`. Saved on the business system and quoted in every contract it issues. Required until one is stored (400 otherwise, and no key is generated); later requests may omit it to reuse the stored text, or send new text to replace it. |
 | `base_url` | string | | 8 to 512 characters. `http` or `https` URL with a host and no credentials, query, fragment, or whitespace (400 otherwise). Written into the contract as the API base URL. |
 | `rotate` | boolean | `false` | Must be true to replace an existing client (`client_exists`, 409, otherwise). |
 
 `client_id`, `tenant_id`, and `service_code` may contain only letters, digits, `.`, `-`, and `_` (400 otherwise).
 
-The response is a Markdown file (`Content-Type: text/markdown; charset=utf-8`, `Content-Disposition: attachment; filename="<client_id>-quotakit.md"`, `Cache-Control: no-store`). It contains the plaintext client key, the client's configuration (including the numeric `service_id`, Service kind and mode, Quota, metering mode, and configured children), and the call sequence permitted for its role. The key is shown only in this response. With `rotate: true` the new key replaces the old one in the same transaction, so the old key is rejected immediately; the client's tenant, Service, and role are also set to the values in the request. Tokens already issued remain valid, because tokens are bound to the `client_id`, not the key.
+The response is a Markdown file (`Content-Type: text/markdown; charset=utf-8`, `Content-Disposition: attachment; filename="<client_id>-quotakit.md"`, `Cache-Control: no-store`). It opens with the user ID rule, quoting the business system's `subject_id_definition`, which also appears in the JSON values. It contains the plaintext client key, the client's configuration (including the numeric `service_id`, Service kind and mode, Quota, metering mode, and configured children), and the call sequence permitted for its role. The key is shown only in this response. With `rotate: true` the new key replaces the old one in the same transaction, so the old key is rejected immediately; the client's tenant, Service, and role are also set to the values in the request. Tokens already issued remain valid, because tokens are bound to the `client_id`, not the key.
 
 ## Flows
 

@@ -20,7 +20,7 @@ from .admin_auth import (
     cookie_path,
     cookie_secure,
 )
-from .core import QuotaKit, utc_now
+from .core import MEMBERSHIP_ROLE, QuotaKit, utc_now
 from .models import (
     Assignment,
     Client,
@@ -85,6 +85,8 @@ def _asset(name: str) -> str:
 
 class TenantRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    # Omitted or null keeps the stored definition.
+    subject_id_definition: str | None = Field(default=None, max_length=500)
 
 
 class LoginRequest(BaseModel):
@@ -94,10 +96,14 @@ class LoginRequest(BaseModel):
 
 class ProvisionRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64)
-    service_code: str = Field(min_length=1, max_length=64)
-    role: str = Field(pattern=r"^(issuer|provider|consumer)$")
+    # Ignored for the `membership` role, which is not bound to a Service.
+    service_code: str = Field(default="", max_length=64)
+    role: str = Field(pattern=r"^(issuer|provider|consumer|membership)$")
     base_url: str = Field(min_length=8, max_length=512)
     rotate: bool = False
+    # What `subject_id` means in this business system. Saved on the business system; required
+    # until one is stored, then optional (the stored one is reused).
+    subject_id_definition: str | None = Field(default=None, max_length=500)
 
 
 def _validated_base_url(value: str) -> str:
@@ -115,6 +121,52 @@ def _validated_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
+# Both contracts carry the same rule, so the member-sync side and the Service side of a
+# business system are told the same thing: one user ID scheme, chosen by the business system.
+SUBJECT_ID_RULE = (
+    "One positive integer per person, chosen by the business system; member sync and every "
+    "Service request must send the same ID for the same person"
+)
+def _user_id_rule(definition: str) -> list[str]:
+    return [
+        "## User ID rule (read first)",
+        "",
+        "Every request about a user carries that user's ID as `subject_id` (in the body) or",
+        "`X-Subject-ID` (in a header). Kit does not define or look up user IDs. The business",
+        "system chooses which ID to use, for example the primary key of its user table. The one",
+        "rule is that it is the same ID everywhere.",
+        "",
+        "In this business system, `subject_id` is defined as:",
+        "",
+        *[f"> {line}" for line in definition.splitlines()],
+        "",
+        "`subject_id` must be a positive integer. If the definition names a string identifier,",
+        "such as a WeChat union_id or openid, send the integer ID the business system stores",
+        "for that person instead, and use that same integer everywhere.",
+        "",
+        "Rules:",
+        "",
+        "- Member registration and every Service request (redeem, issue, use, settle, balance)",
+        "  must send the same ID for the same person. Kit matches them by this number only.",
+        "- Use exactly one kind of ID. Do not mix in an openid, phone number, member card number,",
+        "  or order ID in some places. Convert any other identifier to the chosen ID before",
+        "  calling Kit.",
+        "- The ID must be a positive integer, stable for the life of the account, and never",
+        "  reused for another person.",
+        "- If the member-sync side and the Service side are different services or teams, agree",
+        "  on this ID before going live.",
+        "",
+        "A mismatch is silent until a request is made: the user is registered as a member under",
+        "one ID, the Service request arrives with another, and Kit rejects it with HTTP 409",
+        "`no_level` as if the user were not a member.",
+        "",
+        "Check before go-live: register one test user through member sync, then make one Service",
+        "request with the same `subject_id`. Success means the IDs line up; `no_level` means they",
+        "do not.",
+        "",
+    ]
+
+
 def _client_guide(
     client_id: str,
     key: str,
@@ -122,6 +174,7 @@ def _client_guide(
     service: Service,
     metering_mode: str | None,
     members: list[dict],
+    subject_id_definition: str,
 ) -> str:
     """Produce an agent-readable integration contract and the one plaintext client key."""
     base = _validated_base_url(config.base_url)
@@ -133,6 +186,8 @@ def _client_guide(
         "role": config.role,
         "api_base_url": base,
         "client_key": key,
+        "subject_id_definition": subject_id_definition,
+        "subject_id_rule": SUBJECT_ID_RULE,
         "service_id": service.id,
         "service_kind": service.service_kind,
         "redemption_mode": service.redemption_mode,
@@ -154,6 +209,7 @@ def _client_guide(
         "Do not call admin APIs or use the Kit deployment's admin key or token secret.",
         "If this file is lost, ask an administrator to rotate the client; Kit stores only a hash.",
         "",
+        *_user_id_rule(subject_id_definition),
         "## Exact configuration values",
         "",
         "```json",
@@ -177,6 +233,14 @@ def _client_guide(
         "| `token` | The preceding Kit redeem or issue response; retain per session |",
         "| `child_service_code` | A code from that token's `authorized_services` |",
         "| `duration_seconds` | Optional 60–86400 seconds chosen by the client backend |",
+        "",
+        "## Prerequisite: the user must be a member",
+        "",
+        "Kit only admits a `subject_id` that holds an active Level in this business system, and",
+        "matches it to member registration by the ID rule above.",
+        "Any other user is rejected with HTTP 409 `no_level`; treat that as \"not a member\".",
+        "This client cannot add members. The business system keeps the member list in Kit",
+        "through its separate member-sync client (role `membership`).",
         "",
         "## Permitted flow",
         "",
@@ -242,6 +306,195 @@ def _client_guide(
             "",
         ]
     )
+    return "\n".join(lines)
+
+
+def _download(client_id: str, guide: str) -> Response:
+    return Response(
+        guide,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            **NO_STORE,
+            "Content-Disposition": f'attachment; filename="{client_id}-quotakit.md"',
+        },
+    )
+
+
+def _subject_id_definition(kit: QuotaKit, tenant: str, supplied: str | None) -> str:
+    """Save a newly supplied definition on the business system, then return the stored one.
+
+    Every contract of a business system quotes the same definition, so the member-sync side
+    and the Service side are told the same thing about user IDs.
+    """
+    text = (supplied or "").strip()
+    now = utc_now()
+    with kit.sessions.begin() as db:
+        row = db.scalar(select(Tenant).where(Tenant.tenant_id == tenant))
+        if text:
+            if row is None:
+                row = Tenant(tenant_id=tenant, name=tenant, created_at=now, updated_at=now)
+                db.add(row)
+            row.subject_id_definition, row.updated_at = text, now
+        stored = row.subject_id_definition if row is not None else None
+    if not stored:
+        raise HTTPException(
+            status_code=400,
+            detail="请填写用户 ID 定义：说明 subject_id 对应业务系统里的哪个整数 ID",
+        )
+    return stored
+
+
+def _levels(kit: QuotaKit, tenant: str) -> list[dict]:
+    """Levels of a business system with the Limits each grants, for the member-sync contract."""
+    with kit.sessions() as db:
+        limits = db.scalars(select(Limit).where(Limit.tenant_id == tenant)).all()
+        return [
+            {
+                "level_code": code,
+                "limits": [
+                    {
+                        "quota_code": limit.quota_code,
+                        "limit_mode": limit.limit_mode,
+                        "limit_value": limit.limit_value,
+                        "period_kind": limit.period_kind,
+                        "timezone": limit.timezone,
+                    }
+                    for limit in limits
+                    if limit.level_code == code
+                ],
+            }
+            for code in db.scalars(
+                select(Level.level_code).where(Level.tenant_id == tenant).order_by(Level.level_code)
+            )
+        ]
+
+
+def _membership_guide(
+    client_id: str,
+    key: str,
+    tenant_id: str,
+    base_url: str,
+    levels: list[dict],
+    subject_id_definition: str,
+) -> str:
+    """Integration contract for a member-sync client, which maintains subject Levels."""
+    base = _validated_base_url(base_url)
+    values = {
+        "schema": "tekes-quotakit-membership/v1",
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "role": "membership",
+        "api_base_url": base,
+        "client_key": key,
+        "subject_id_definition": subject_id_definition,
+        "subject_id_rule": SUBJECT_ID_RULE,
+        "levels": levels,
+    }
+    example_expiry = "2026-11-08T00:00:00+08:00"
+    lines = [
+        f"# TekesQuotaKit member sync: {client_id}",
+        "",
+        "## Instructions for the client agent",
+        "",
+        "This is the complete contract for one member-sync credential. With it the business",
+        "system keeps Kit's member list in step with its own memberships. Kit admits a user to",
+        "a Service only while the user holds an active Level here.",
+        "Move `client_key` into the trusted backend's secret store or environment.",
+        "Never commit this file or key, echo it in logs, or expose it to a browser or miniapp.",
+        "This credential can only manage members of this business system. It cannot call",
+        "Services and cannot change rules.",
+        "",
+        *_user_id_rule(subject_id_definition),
+        "## Exact configuration values",
+        "",
+        "```json",
+        json.dumps(values, ensure_ascii=False, indent=2, default=str),
+        "```",
+        "",
+        "`levels` lists the Level codes you may assign and the Limits each one grants.",
+        "",
+        "## What to send",
+        "",
+        "Send only users who hold a membership, not every user. `subject_id` follows the user",
+        "ID rule above: the same ID the Service clients send for that person.",
+        "`expires_at` is ISO 8601 with a timezone offset, for example",
+        f"`{example_expiry}`; omit it for a membership without an end date.",
+        "",
+        "`renew_term` marks a real purchase or renewal. Set it to `true` on those events. It",
+        "starts a new membership term and lets `expires_at` change. Use `false` when you only",
+        "re-send the current state, for example during reconciliation. If a `false` request",
+        "returns 400 `term_change_requires_renewal`, the expiry differs from Kit's, which means",
+        "a renewal happened; send it again with `true`.",
+        "",
+        "Every call takes `Authorization: Bearer <client_key>`.",
+        "",
+        "## 1. Initial import, once at go-live",
+        "",
+        f"`POST {base}/v1/members/batch`, at most 500 items per call:",
+        "",
+        "```json",
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "subject_id": 42,
+                        "level_code": levels[0]["level_code"] if levels else "member",
+                        "expires_at": example_expiry,
+                        "renew_term": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "```",
+        "",
+        "The response is `{\"total\": n, \"failed\": k, \"results\": [...]}`, one result per",
+        "item with `ok`, and `code` and `message` when it failed. Items are applied one by one,",
+        "so a failure does not undo the others. Fix and resend only the failed items.",
+        "",
+        "## 2. On membership purchase or renewal",
+        "",
+        f"`PUT {base}/v1/members/{{subject_id}}`",
+        "",
+        "```json",
+        json.dumps(
+            {
+                "level_code": levels[0]["level_code"] if levels else "member",
+                "expires_at": example_expiry,
+                "renew_term": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "```",
+        "",
+        "The response returns the member's current Level, start, and expiry.",
+        "",
+        "## 3. On refund, cancellation, or account deletion",
+        "",
+        f"`DELETE {base}/v1/members/{{subject_id}}` ends the membership now. The response",
+        "`ended` is `true` if a membership was active and `false` if there was none, so the",
+        "call is safe to repeat. History is kept. A membership that simply expires needs no call.",
+        "",
+        "## 4. Checking one member",
+        "",
+        f"`GET {base}/v1/members/{{subject_id}}` returns `member: null` when the user has no",
+        "active Level, otherwise the Level, start, and expiry. Use it for reconciliation.",
+        "",
+        "## Errors",
+        "",
+        "| Status | Code | Meaning |",
+        "| --- | --- | --- |",
+        "| 401 | `unauthorized` | Wrong key, or the key is not a member-sync credential |",
+        "| 404 | `unknown_level` | `level_code` is not one of the Levels above |",
+        "| 400 | `invalid_expiry` | `expires_at` is not after now |",
+        "| 400 | `term_change_requires_renewal` | Expiry changed without `renew_term: true` |",
+        "| 422 | (validation) | Malformed body or `subject_id` |",
+        "",
+        "Retry on network errors with the same body; all calls are safe to repeat.",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -311,12 +564,18 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
     def tenants() -> dict:
         """Registered business systems, plus tenant IDs that only appear in data."""
         with kit.sessions() as db:
-            registered = {t.tenant_id: t.name for t in db.scalars(select(Tenant))}
+            rows = {t.tenant_id: t for t in db.scalars(select(Tenant))}
+            registered = {code: row.name for code, row in rows.items()}
             found = set(registered)
             for model in (Level, Quota, Service, Client, Assignment):
                 found.update(db.scalars(select(model.tenant_id).distinct()))
         items = [
-            {"tenant_id": t, "name": registered.get(t), "registered": t in registered}
+            {
+                "tenant_id": t,
+                "name": registered.get(t),
+                "registered": t in registered,
+                "subject_id_definition": rows[t].subject_id_definition if t in rows else None,
+            }
             for t in sorted(found)
         ]
         return {"tenants": sorted(found), "items": items}
@@ -335,10 +594,14 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         with kit.sessions.begin() as db:
             row = db.scalar(select(Tenant).where(Tenant.tenant_id == tenant))
             if row is None:
-                db.add(Tenant(tenant_id=tenant, name=name, created_at=now, updated_at=now))
+                row = Tenant(tenant_id=tenant, name=name, created_at=now, updated_at=now)
+                db.add(row)
             else:
                 row.name, row.updated_at = name, now
-        return {"tenant_id": tenant, "name": name}
+            if payload.subject_id_definition is not None:
+                row.subject_id_definition = payload.subject_id_definition.strip() or None
+            definition = row.subject_id_definition
+        return {"tenant_id": tenant, "name": name, "subject_id_definition": definition}
 
     @router.get("/v1/admin/tables", dependencies=[Depends(authenticate)])
     def table_names() -> dict:
@@ -384,15 +647,16 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
 
     @router.post("/v1/admin/clients/{client_id}/provision", dependencies=[Depends(authenticate)])
     def provision(client_id: str, config: ProvisionRequest) -> Response:
-        if not all(
-            SAFE_CODE.fullmatch(value)
-            for value in (client_id, config.tenant_id, config.service_code)
-        ):
+        codes = [client_id, config.tenant_id]
+        if config.role != MEMBERSHIP_ROLE:
+            codes.append(config.service_code)
+        if not all(SAFE_CODE.fullmatch(value) for value in codes):
             raise HTTPException(
                 status_code=400,
                 detail="Codes may contain letters, numbers, dot, dash, underscore",
             )
         base = _validated_base_url(config.base_url)
+        definition = _subject_id_definition(kit, config.tenant_id, config.subject_id_definition)
         key, service = kit.provision_client(
             client_id,
             config.tenant_id,
@@ -401,6 +665,13 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             rotate=config.rotate,
         )
         config.base_url = base
+        if service is None:
+            levels = _levels(kit, config.tenant_id)
+            return _download(
+                client_id, _membership_guide(
+                    client_id, key, config.tenant_id, base, levels, definition
+                ),
+            )
         with kit.sessions() as db:
             quota = db.scalar(
                 select(Quota).where(
@@ -423,14 +694,10 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                     .order_by(ServiceMember.child_service_code)
                 )
             ]
-        guide = _client_guide(client_id, key, config, service, metering_mode, members)
-        return Response(
-            guide,
-            media_type="text/markdown; charset=utf-8",
-            headers={
-                **NO_STORE,
-                "Content-Disposition": f'attachment; filename="{client_id}-quotakit.md"',
-            },
+        return _download(
+            client_id, _client_guide(
+                client_id, key, config, service, metering_mode, members, definition
+            ),
         )
 
     return router

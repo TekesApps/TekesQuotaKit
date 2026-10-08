@@ -65,3 +65,32 @@ test('every editor control is the same height, unclipped and centered', async ({
   }
   expect(drawers).toBeGreaterThanOrEqual(7);
 });
+
+test('issues a member-sync credential without a Service and downloads its contract', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.getByRole('button', { name: '客户端凭据' }).click();
+  await page.getByRole('button', { name: '签发凭据' }).click();
+  await page.locator('.drawer-panel label').filter({ hasText: 'Client ID' }).locator('input').fill('e2e-members');
+  await page.getByLabel('角色').click();
+  await page.getByTitle('会员同步（membership）').click();
+  const definition = page.locator('.drawer-panel label').filter({ hasText: '用户 ID 定义' }).locator('input');
+  await expect(definition).toHaveValue('');
+  await definition.fill('user_table.id');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '生成并下载' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('e2e-members-quotakit.md');
+  const text = await (await file.createReadStream()).toArray().then(chunks => Buffer.concat(chunks).toString('utf8'));
+  expect(text).toContain('"schema": "tekes-quotakit-membership/v1"');
+  expect(text).toContain('/v1/members/batch');
+  expect(text).toContain('> user_table.id');
+  expect(text).toContain('"subject_id_definition": "user_table.id"');
+  await expect(page.getByRole('status')).toContainText('e2e-members');
+  await expect(page.locator('tbody')).toContainText('不绑定（会员同步）');
+  // The next credential of this business system starts from the stored definition.
+  await page.getByRole('button', { name: '签发凭据' }).click();
+  await expect(page.locator('.drawer-panel label').filter({ hasText: '用户 ID 定义' }).locator('input')).toHaveValue('user_table.id');
+});

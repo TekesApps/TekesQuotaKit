@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .admin import create_admin_router
 from .admin_auth import AdminAccounts, require_admin_factory
-from .core import QuotaError, QuotaKit
+from .core import MEMBERSHIP_ROLE, QuotaError, QuotaKit
 from .models import Client
 
 
@@ -41,6 +41,26 @@ class LimitConfig(BaseModel):
     limit_value: int | None = Field(default=None, ge=0)
     period_kind: Literal["day", "week", "month", "level_term"]
     timezone: str = "Asia/Shanghai"
+
+
+class MemberRequest(BaseModel):
+    level_code: str = Field(min_length=1, max_length=64)
+    expires_at: datetime | None = None
+    renew_term: bool = False
+
+
+class MemberItem(MemberRequest):
+    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+
+
+class MemberBatch(BaseModel):
+    items: list[MemberItem] = Field(min_length=1, max_length=500)
+
+
+def _utc_naive(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 class AssignmentConfig(BaseModel):
@@ -106,6 +126,9 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     def issuer(key: Annotated[str, Depends(bearer)]) -> Client:
         return kit.client(key, "issuer")
+
+    def membership(key: Annotated[str, Depends(bearer)]) -> Client:
+        return kit.client(key, MEMBERSHIP_ROLE)
 
     def provider(key: Annotated[str, Depends(bearer)]) -> Client:
         return kit.client(key, "provider")
@@ -285,6 +308,61 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     @app.get("/v1/tokens/unsettled")
     def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
         return kit.unsettled(caller)
+
+    # Member sync: a `membership` client keeps the member list of its own business system.
+    @app.put("/v1/members/{subject_id}")
+    def put_member(
+        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        payload: MemberRequest,
+        caller: Annotated[Client, Depends(membership)],
+    ) -> dict:
+        kit.assign(
+            caller.tenant_id,
+            subject_id,
+            payload.level_code,
+            _utc_naive(payload.expires_at),
+            renew_term=payload.renew_term,
+        )
+        return {"subject_id": subject_id, "member": kit.membership(caller.tenant_id, subject_id)}
+
+    @app.get("/v1/members/{subject_id}")
+    def get_member(
+        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        caller: Annotated[Client, Depends(membership)],
+    ) -> dict:
+        return {"subject_id": subject_id, "member": kit.membership(caller.tenant_id, subject_id)}
+
+    @app.delete("/v1/members/{subject_id}")
+    def end_member(
+        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        caller: Annotated[Client, Depends(membership)],
+    ) -> dict:
+        return {"subject_id": subject_id, "ended": kit.end_membership(caller.tenant_id, subject_id)}
+
+    @app.post("/v1/members/batch")
+    def put_members(payload: MemberBatch, caller: Annotated[Client, Depends(membership)]) -> dict:
+        results = []
+        for item in payload.items:
+            try:
+                kit.assign(
+                    caller.tenant_id,
+                    item.subject_id,
+                    item.level_code,
+                    _utc_naive(item.expires_at),
+                    renew_term=item.renew_term,
+                )
+                results.append({"subject_id": item.subject_id, "ok": True})
+            except QuotaError as exc:
+                results.append(
+                    {
+                        "subject_id": item.subject_id,
+                        "ok": False,
+                        "code": exc.code,
+                        "message": exc.message,
+                    }
+                )
+        failed = sum(1 for r in results if not r["ok"])
+        return {"total": len(results), "failed": failed, "results": results}
 
     app.include_router(create_admin_router(kit, accounts, admin))
     return app
