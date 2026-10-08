@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .admin import create_admin_router
 from .admin_auth import AdminAccounts, require_admin_factory
 from .core import MEMBERSHIP_ROLE, QuotaError, QuotaKit
@@ -107,7 +108,7 @@ class UseRequest(TokenRequest):
 def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     if len(admin_key) < 32:
         raise ValueError("Admin key must be at least 32 characters")
-    app = FastAPI(title="TekesQuotaKit", version="0.7.2")
+    app = FastAPI(title="TekesQuotaKit", version=__version__)
 
     @app.exception_handler(QuotaError)
     async def quota_error(_request, exc: QuotaError):

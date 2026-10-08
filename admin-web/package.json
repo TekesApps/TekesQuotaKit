@@ -1,7 +1,7 @@
 {
   "name": "tekes-quota-kit-admin",
   "private": true,
-  "version": "0.7.2",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -16,7 +16,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
-    "@types/node": "^24.19.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "~5.9.0",

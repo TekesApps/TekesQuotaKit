@@ -16,8 +16,12 @@ Before 1.0, minor versions may contain breaking changes.
 
 ### Changed
 
-- The sidebar caption reads 配额管理平台 without the wide letter-spacing, and shows the console
-  version, taken from `admin-web/package.json` at build time. A browser test checks both.
+- The sidebar caption reads 配额管理平台 without the wide letter-spacing, and shows the version
+  of the server that is actually running, read from the session. A browser test checks both.
+- `pyproject.toml` is the only place the version is written. The server reads it from the
+  installed package metadata (`tekes_quota_kit.__version__`, the OpenAPI version, and the
+  `version` field of the admin session); nothing else hard-codes it, and the console no longer
+  embeds a version at build time.
 
 ## [0.7.2] - 2026-10-08
 
