@@ -1,83 +1,162 @@
 # TekesQuotaKit
 
-TekesQuotaKit is a Python service for shared Service, Quota, Level, and Limit rules. An `instant` per-use Service is admitted, charged, and completed by one `redeem` call. A `durable` per-use Service is charged by `redeem`, validates each permitted Service attempt with `use`, and remains open until `stop` or its optional expiry. Reported-usage Services retain `issue` followed by `settle(token, consumed_units)`.
+[![CI](https://github.com/TekesApps/TekesQuotaKit/actions/workflows/ci.yml/badge.svg)](https://github.com/TekesApps/TekesQuotaKit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The first consumer is `shukang-zhiyi`. Deploy TekesQuotaKit against that application's **existing MySQL database**. It creates only `tq_` tables and stores the application's numeric `resident_users.id` as `subject_id`, scoped by `tenant_id`; it does not create, alter, or own the application's user table. A separate database is not required. All tables have auto increment integer `id` primary keys; business codes and token hashes use unique constraints. SQLAlchemy models also support SQLite for local tests and future deployment.
+TekesQuotaKit is a small FastAPI + SQLAlchemy service that acts as a shared entitlement and quota authority for other backends. Your trusted servers ask it whether a user (a "subject") may use a Service, and it atomically checks the user's Level, enforces the Limit for the current period, charges the Quota, and records every change in an immutable ledger. It is for teams that run several backends (or several features in one backend) that must draw from the same per-user allowance, and that want one auditable place for that rule instead of a counter column in each application.
 
-## Local setup
+> **Status: alpha (pre-1.0).** The HTTP API and schema may change between minor versions. See [Known limitations](#known-limitations).
+
+## Core concepts
+
+| Concept | Meaning |
+| --- | --- |
+| **Service** | Something a backend performs for a user, identified by `service_code` (and an integer `service_id`). `atomic` or `composite`; `instant` or `durable`. |
+| **Quota** | A countable allowance with a `unit_code` and a `metering_mode` of `per_use` or `reported_usage`. A Service charges one Quota. |
+| **Level** | A tier assigned to a subject, such as `regular` or `premium`. |
+| **Limit** | For one Level and one Quota: `finite` with a `limit_value`, or `unlimited`, over a period of `day`, `month`, or `level_term`. |
+| **Assignment** | Links a subject (positive integer `subject_id`, scoped by tenant) to a Level, with optional `effective_at`, `expires_at`, and `renew_term`. |
+| **Client credential** | A long random key bound to one tenant, one Service, and one role (`issuer`, `provider`, or `consumer`). Only its SHA-256 hash is stored. |
+| **Token** | Created per subject and request by `redeem` or `token`; used for settlement, use, stop, refund, and status. |
+| **Ledger** | Append-only record of every `consume` and `refund` event. |
+
+A `consumer` client may call both issuer and provider endpoints. Use separate `issuer` and `provider` clients when admission and execution happen on different backends.
+
+## Redemption modes
+
+All calls below are sent by a trusted backend with `Authorization: Bearer <client key>`.
+
+**Instant** (per-use Quota, atomic Service). One call admits, charges one unit, and completes:
+
+```text
+POST /v1/redeem  {"subject_id":42,"service_code":"report_export","request_key":"export-123"}
+```
+
+**Durable** (per-use Quota, `charge_units` > 0). `redeem` charges once and opens a session; each controlled attempt calls `use`; `stop` closes it. A composite parent grants its child Services, configured as rows in `tq_service_members`. `duration_seconds` (60 to 86400) is optional and falls back to the Service's `session_ttl_seconds`; with neither, the session stays open until `stop`.
+
+```text
+POST /v1/redeem  {"subject_id":42,"service_code":"session_bundle","request_key":"session-501","duration_seconds":3600}
+POST /v1/use     {"token":"tq_...","child_service_code":"child_a","request_key":"session-501-a-1"}   + X-Subject-ID: 42
+POST /v1/stop    {"token":"tq_..."}
+```
+
+`use` never charges again. It checks that the child is in the snapshot captured at `redeem`, that the session is open and unexpired, and that the child's optional `max_uses` is not exceeded. Stop and expiry never refund. An explicit `POST /v1/token/refund` is allowed only when no child attempt was recorded.
+
+**Reported usage** (`reported_usage` Quota). `token` admits work without charging; the provider settles actual usage afterwards, including partial usage on failure:
+
+```text
+POST /v1/token         {"subject_id":42,"service_id":8,"request_key":"chat-456"}
+POST /v1/token/settle  {"token":"tq_...","consumed_units":750}
+```
+
+**Idempotency with `request_key`.** A stable key per business operation lets a caller retry safely:
+
+- Instant: a repeated key returns HTTP 409 `already_redeemed` with the original `token`, and nothing is charged again.
+- Reported usage: a repeated key returns the original token with `idempotent: true`.
+- Durable: `request_key` is required. A repeat returns the same token with `idempotent: true`. Each `use` also needs its own stable key.
+
+A token returned again never authorizes repeating the physical operation. A `settled` status confirms the quota transaction, not the business side effect.
+
+## Quick start
+
+Requirements: Python >= 3.12, [uv](https://docs.astral.sh/uv/), and MySQL for deployment (SQLite works for tests).
 
 ```bash
 uv sync --all-groups
 cp .env.example .env
-# Set TEKES_QUOTA_DATABASE_URL to an existing MySQL schema and set both secrets.
+uv run tekes-quota-kit generate-secrets   # paste both values into .env
+# Set TEKES_QUOTA_DATABASE_URL in .env, then export the variables:
 set -a; source .env; set +a
 uv run tekes-quota-kit init-schema
 uv run tekes-quota-kit serve
 ```
 
-`init-schema` creates missing `tq_` tables in the configured database. It does not create a database, alter existing tables, or seed Levels and Limits. For a reviewed fresh MySQL deployment, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. An existing installation must instead apply the one-time [composite migration](migrations/add_composite_services_mysql.sql) after a database backup; `init-schema` will not perform that upgrade. Do not run both fresh creation methods on the same schema. The API binds to `127.0.0.1:9460` by default. Caller credentials and the admin credential stay on trusted servers; never put them in a miniapp or browser bundle. Keep `TEKES_QUOTA_TOKEN_SECRET` stable across restarts so retries continue to produce the same token.
+Open `http://127.0.0.1:9460/admin` for the web admin and `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
+
+TekesQuotaKit creates only `tq_` tables, so it can share your application's existing schema; a separate database is optional. It never creates, alters, or owns your application's user table: `subject_id` is your existing numeric user ID. `init-schema` creates missing `tq_` tables only. It does not create the database, alter existing tables, or seed data. For a reviewed fresh MySQL install, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. Installs created before 0.2.0 must apply [migrations/add_composite_services_mysql.sql](migrations/add_composite_services_mysql.sql) once, after a backup; `init-schema` will not perform that upgrade. Never run both fresh creation methods on the same schema.
 
 ## First integration
 
-1. Configure tenant `shukang-zhiyi`, Quotas, Services, Levels, and Limits through the authenticated `/v1/admin` API.
-2. Associate a resident with a Level using the resident's existing positive integer ID as `subject_id`.
-3. If one backend both initiates and performs the Service, create one `consumer` client. For separate backends, create an `issuer` client and a `provider` client. Each client is bound to one tenant and one Service; use different long random keys for separate clients.
-4. For an `instant` `per_use` Service, its trusted backend calls `POST /v1/redeem` with the authenticated resident's integer `subject_id` and either its registered integer `service_id` or stable `service_code`. Success atomically admits one use, deducts one unit, and completes the token. A rejected redemption must stop the Service.
-5. For a `reported_usage` Service, the trusted backend calls `POST /v1/token` with the same IDs. Success admits the work and returns a token without deducting usage. After the work, its provider calls `POST /v1/token/settle` with that token and actual `consumed_units`, including partial usage on failure. There is no intermediate redemption call.
-6. Instant redemption and reported-usage admission accept an optional stable `request_key`. A repeated instant key returns HTTP 409 `already_redeemed` with the original token; a repeated reported-usage key returns the original token with `idempotent: true`. Durable redemption requires a stable key and returns the same token with `idempotent: true` on retry. No idempotent response authorizes repeating a physical operation.
+Admin calls use `Authorization: Bearer $TEKES_QUOTA_ADMIN_KEY`. All admin configuration endpoints are idempotent `PUT`s.
 
-Example request bodies (sent by trusted backends with a Service credential):
+1. Create a Quota:
+   `PUT /v1/admin/tenants/demo-tenant/quotas/exports` `{"unit_code":"use","metering_mode":"per_use"}`
+2. Create a Level:
+   `PUT /v1/admin/tenants/demo-tenant/levels/regular` (no body)
+3. Set its Limit:
+   `PUT /v1/admin/tenants/demo-tenant/levels/regular/limits/exports` `{"limit_mode":"finite","limit_value":10,"period_kind":"month","timezone":"UTC"}`
+4. Create a Service (the response contains its `service_id`):
+   `PUT /v1/admin/tenants/demo-tenant/services/report_export` `{"quota_code":"exports","service_kind":"atomic","redemption_mode":"instant"}`
+5. Assign a subject, using your application's user ID:
+   `PUT /v1/admin/tenants/demo-tenant/subjects/42/level` `{"level_code":"regular"}`
+6. Create a client credential, either in the web admin (recommended, it generates the key and a Markdown contract) or directly:
+   `PUT /v1/admin/clients/export-backend` `{"client_id":"export-backend","key":"<at least 32 random chars>","tenant_id":"demo-tenant","service_code":"report_export","role":"consumer"}`
+7. From your backend, redeem:
 
-```text
-Per use:        POST /v1/redeem         {"subject_id":42,"service_id":7,"request_key":"measurement-123"}
-Reported usage: POST /v1/token         {"subject_id":42,"service_id":8,"request_key":"chat-456"}
-After usage:    POST /v1/token/settle  {"token":"tq_...","consumed_units":750}
-```
+   ```bash
+   curl -X POST http://127.0.0.1:9460/v1/redeem \
+     -H "Authorization: Bearer $CLIENT_KEY" -H "Content-Type: application/json" \
+     -d '{"subject_id":42,"service_code":"report_export","request_key":"export-123"}'
+   ```
 
-`GET /v1/quota` is for display only. It cannot authorize execution. `GET /v1/tokens/unsettled` lists admitted metered uses still awaiting settlement. The provider must retain its token until settlement succeeds and reconcile missing usage. Settlement needs only the token and `consumed_units` in its body plus the provider's server credential; QuotaKit resolves the subject from the token. Refund and status endpoints require the trusted `X-Subject-ID` header containing the resident ID as decimal text.
+   On success, perform the work. On rejection (for example HTTP 409 `quota_exhausted`), do not perform it.
 
-If a provider loses an admission response, it must retry with the same `request_key` or recover the original business result. The repeated instant call returns the original token for refund or status lookup, while durable redemption returns the existing open or closed token. It must not start a second business operation solely because a token is returned again. A `settled` token status confirms the quota transaction, not the business side effect.
+`GET /v1/quota` (with `X-Subject-ID`) is for display only and never authorizes execution. `GET /v1/tokens/unsettled` lists reported-usage tokens still awaiting settlement; the provider must keep its token until settlement succeeds. If you are replacing a legacy usage counter, switch it off at the same moment you start charging through TekesQuotaKit to avoid double charging. See [docs/api.md](docs/api.md) for every endpoint and error code.
 
-This initial implementation uses integer units and `day`, `month`, or `level_term` periods. Metered calls may exceed a finite Limit when concurrent calls settle later; consumers must bound concurrency and maximum per-call usage. Business-specific success events, identity mapping, and legacy quota migration remain with each consumer. See [用户服务Quota通用模型.md](用户服务Quota通用模型.md) for the current table relationships and [组合服务与测量示例.md](组合服务与测量示例.md) for the full measurement example.
+## Security model
 
-The core covers one parent Service per credential, Level assignment, finite/unlimited Limits, direct per-use redemption, reported-usage admission and settlement, refunds, and an immutable usage ledger. Composite sessions can grant multiple configured child Services without charging the Quota again. Versioned Service-to-Quota mappings and a shared grant spanning separately deployed providers remain design work before broad production rollout. The existing Shukang measurement counter must not be charged alongside this ledger during migration.
+- `TEKES_QUOTA_ADMIN_KEY`, `TEKES_QUOTA_TOKEN_SECRET`, and every client key must be at least 32 characters. Use `generate-secrets`.
+- Client keys are server credentials. Never ship them, or the admin key, in a browser, mobile app, or miniapp bundle.
+- The server binds to `127.0.0.1:9460` by default. Expose it only through a TLS reverse proxy on a trusted network.
+- Keep `TEKES_QUOTA_TOKEN_SECRET` stable. Tokens are derived from it, so changing it breaks idempotent retries of every earlier `request_key`. There is no rotation procedure.
+- `use`, `refund`, `status`, and `quota` take the subject from a trusted `X-Subject-ID` header that your backend sets from its own authentication. Settlement and `stop` resolve the subject from the token.
 
-## Instant and durable redemption
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a deployment checklist.
 
-Configure an instant Service with `service_kind: "atomic"`, `redemption_mode: "instant"`, and its per-use `quota_code`. One `POST /v1/redeem` charges and completes it. Configure a durable Service with `redemption_mode: "durable"`, a per-use `quota_code`, and positive `charge_units`; `service_kind` may be `atomic` or `composite`. Define every parent and child once in `tq_services`, then configure each parent-child relationship through `PUT /v1/admin/tenants/{tenant}/services/{parent}/members/{child}` with `{"max_uses":null}` for unlimited attempts or a positive number for a cap. `tq_service_members` is a mapping table, not another Service definition: the same atomic child may belong to multiple composites whose parent Services charge different Quotas. Each redemption snapshots its parent-specific grants and limits. An atomic durable Service can validate use of its own `service_code`.
+## Web admin
 
-```text
-POST /v1/redeem {"subject_id":42,"service_code":"measurement_session","request_key":"session-501","duration_seconds":3600}
-POST /v1/use    {"token":"tq_...","child_service_code":"blood_pressure","request_key":"session-501-bp-1"}
-POST /v1/use    {"token":"tq_...","child_service_code":"blood_pressure","request_key":"session-501-bp-2"}
-POST /v1/stop   {"token":"tq_..."}
-```
+`GET /admin` serves a single-page dashboard. You enter the admin key in the page; it is kept only in the current tab's memory. The dashboard lists all 11 `tq_` tables, scoped by tenant and paginated, and hides credential and token hashes. Quotas, Levels, Limits, Services, parent-child memberships, and assignments are edited through the same validated admin API. Usage, tokens, token items, and the ledger are read-only.
 
-`duration_seconds` is optional on durable `redeem` (60–86400 seconds). When omitted, the Service's optional `session_ttl_seconds` is used; when neither is set, the token remains open until `stop`. With a duration, `use` fails immediately after expiry, and `tekes-quota-kit expire-sessions` persists the expired state. `redeem` returns the authorized Service codes captured at that moment. Each `use` validates the child against this snapshot, checks that the token is open and unexpired, and records an attempt with a stable `request_key`; it never charges the Quota again. A repeated key returns its prior attempt with `idempotent: true`. Distinct keys may use the same child without a count limit when `max_uses` is null, or up to the snapshotted positive limit.
+Under **Client credentials**, choose a Client ID, Service, role, and the API base URL the client will use. The admin generates a random key, stores only its hash, and downloads a Markdown integration contract containing the plaintext key, binding, Service settings, child mappings, and the relevant API sequence. This download is the only time the plaintext key is available. Re-provisioning an existing Client ID requires the explicit **rotate** option, which immediately invalidates the old key. Keep the downloaded file out of Git and out of client-side code.
 
-`stop` closes a durable token without charging again; `/v1/token/settle` with just the token is an equivalent durable close. The charge remains `settled`, while `session_status` records `open`, `closed`, or `expired`. Timeout and stop never refund automatically. A whole-session refund requires explicit `/v1/token/refund` and is allowed only when no child attempt was recorded. The trusted backend must call `use` before each controlled attempt so the Kit can enforce membership and this refund rule. `use`, `refund`, and status require the same Service credential and a trusted `X-Subject-ID` header. Older `/v1/begin` and `/v1/close` routes remain as aliases for this durable flow.
+## CLI
 
-Level assignment now accepts optional `effective_at` and `renew_term`. A level change within an active term carries the original term start/end and usage; changing term end requires `renew_term: true`, which starts a new accounting term. `level_term` Limits use those term boundaries. Consumers must make a real membership renewal and a mid-term upgrade distinguishable when calling the admin API. The term and business-side order/entitlement lifecycle still need a Shukang integration design before production cutover.
+| Command | Purpose |
+| --- | --- |
+| `tekes-quota-kit serve` | Run the API and web admin on `TEKES_QUOTA_HOST`:`TEKES_QUOTA_PORT`. |
+| `tekes-quota-kit init-schema` | Create missing `tq_` tables in `TEKES_QUOTA_DATABASE_URL`. |
+| `tekes-quota-kit expire-sessions [--limit N]` | Persist the `expired` state for durable sessions past their expiry (default limit 500 per run). Intended for cron. |
+| `tekes-quota-kit generate-secrets` | Print a new admin key and token secret. Needs no database. |
 
-Existing atomic `/v1/redeem` and metered `/v1/token` flows remain unchanged. Composite configuration and use are server-side only. The old Shukang `resident_entitlements.measure_used` path must be switched off at the same cutover point to avoid double charging.
+Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKES_QUOTA_TOKEN_SECRET` from the environment; `serve` also needs `TEKES_QUOTA_ADMIN_KEY`.
 
-The alternative measurement layout gives each child Service its own per-use Quota and Level Limit. Each project then calls instant `/v1/redeem` independently, using its stable `service_code` or integer `service_id` and a separate client credential bound to that Service. The [measurement model tests](tests/test_measurement_models.py) exercise both layouts and the configuration switch. Existing durable tokens keep their child snapshots through the switch, so the consumer must route old sessions to `use` until they stop or expire.
+## Known limitations
 
-## Tests
+- Alpha, pre-1.0. The API and schema may change.
+- Units are integers. Periods are `day`, `month`, or `level_term` only.
+- Reported-usage calls can exceed a finite Limit, because admission checks current usage and concurrent settlements land later. Callers must bound concurrency and maximum per-call usage.
+- One parent Service per client credential.
+- Versioned Service-to-Quota mappings and a shared grant spanning separately deployed providers are not implemented.
+- Business success events, identity mapping, and migration from a legacy counter remain the integrating application's responsibility.
+- `/v1/begin` and `/v1/close` are legacy aliases for durable `redeem` and `stop`.
+
+## Development
 
 ```bash
 uv run pytest
 uv run ruff check .
 ```
 
-The SQLite tests exercise the portable model. The optional MySQL integration test uses a disposable test schema named by `TEKES_QUOTA_TEST_DATABASE_URL`; it never targets the configured application database.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the optional MySQL integration tests and pull request guidelines.
 
-## Web administration and client credentials
+## Documentation
 
-Generate deployment secrets once with `uv run tekes-quota-kit generate-secrets`. Store the printed `TEKES_QUOTA_ADMIN_KEY` and `TEKES_QUOTA_TOKEN_SECRET` in a server-side secret manager or protected environment file. Keep the token secret stable: replacing it would prevent existing tokens and idempotent retries from being verified. The command does not need database access and does not change a running deployment.
+- [docs/api.md](docs/api.md): full HTTP API reference
+- [docs/deployment.md](docs/deployment.md): production deployment
+- [docs/zh/quota-model.md](docs/zh/quota-model.md): quota model and table relationships (in Chinese)
+- [docs/zh/composite-measurement-example.md](docs/zh/composite-measurement-example.md): composite Service worked example (in Chinese)
+- [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md)
 
-Start the Kit with `uv run tekes-quota-kit serve`, then open `/admin` on its configured host (localhost by default). Enter the admin key in the page; the page keeps it only in the current browser tab's memory. The dashboard lists all 11 `tq_` tables, scoped by tenant and paginated. It hides credential and token hashes. Configure Quotas, Levels, Limits, Services, parent-child memberships, and subject assignments through validated API calls. Usage, tokens, token items, and the ledger are read-only in the dashboard; consumer operations and refunds retain their dedicated endpoints.
+## License
 
-In **Client credentials**, choose a unique Client ID, the preconfigured Service code, role, and the API base URL used by that client. The admin generates a random client key, stores only its SHA-256 hash, and downloads an agent-readable Markdown integration contract. It contains the plaintext client key, exact binding and Service settings, current child mappings, relevant API sequence, and the source of each runtime value. The client agent can read this file to implement its trusted backend integration. This is the one opportunity to save the plaintext key; Kit cannot retrieve it later. Generating a key for an existing Client ID requires the explicit **rotate** option, which immediately invalidates the previous key. Keep the downloaded Markdown out of Git and client-side applications. The admin and token secrets are never included in a client guide.
-
-A client key is a server credential. A per-use `token` is created later by `redeem` or `issue` for a specific subject and request, so the admin cannot preconfigure or export one. The trusted business backend obtains the user's `subject_id` from its own authentication and creates stable `request_key` values for each business operation.
+[MIT](LICENSE)

@@ -1,15 +1,37 @@
 [project]
 name = "tekes-quota-kit"
 version = "0.2.0"
-description = "Shared service entitlement and usage guard"
+description = "Shared service entitlement and usage guard with instant, durable, and metered redemption"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "TekesApps" }]
 requires-python = ">=3.12"
+keywords = ["quota", "entitlement", "rate-limit", "metering", "fastapi", "sqlalchemy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "fastapi>=0.117,<1",
     "pymysql>=1.1,<2",
     "sqlalchemy>=2.0,<3",
     "uvicorn>=0.35,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/TekesApps/TekesQuotaKit"
+Repository = "https://github.com/TekesApps/TekesQuotaKit"
+Issues = "https://github.com/TekesApps/TekesQuotaKit/issues"
+Changelog = "https://github.com/TekesApps/TekesQuotaKit/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = ["httpx>=0.28,<1", "pytest>=8.4,<9", "ruff>=0.13,<1"]

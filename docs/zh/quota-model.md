@@ -1,6 +1,8 @@
 # 用户服务 Quota 通用模型
 
-本文说明 TekesQuotaKit 当前的数据关系。旧版关于“Quota 直接包含若干原子 Service，并用相同 `usage_key` 合并测量扣费”的讨论已由 Git 历史保留，不是当前实现。完整的测量配置与调用过程见 [组合 Service 与测量示例](组合服务与测量示例.md)。
+> 说明：本文为设计笔记。公开的权威参考以英文 [README](../../README.md) 与 [docs/api.md](../api.md) 为准。
+
+本文说明 TekesQuotaKit 当前的数据关系。旧版关于“Quota 直接包含若干原子 Service，并用相同 `usage_key` 合并测量扣费”的讨论已由 Git 历史保留，不是当前实现。完整的测量配置与调用过程见 [组合 Service 与测量示例](composite-measurement-example.md)。
 
 ## 三个独立概念
 
