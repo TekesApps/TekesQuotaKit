@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AutoComplete, ConfigProvider } from 'antd';
+import { ConfigProvider, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { api, ApiError } from './api';
 import type { User } from './types';
@@ -8,6 +8,7 @@ import { Sidebar, type NavigationGroup } from './sidebar';
 import { AssignmentsPage, ClientsPage, DataPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
 import './admin.css';
 import './login.css';
+import './antd-overrides.css';
 
 const navigation: NavigationGroup[] = [
   { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 额度'], ['levels', 'Level 等级'], ['limits', '额度规则']] },
@@ -33,15 +34,31 @@ function Login({ onLogin, initialError }: { onLogin: (user: User) => void; initi
   </main>;
 }
 
-function TenantPicker({ value, onChange, revision }: { value: string; onChange: (tenant: string) => void; revision: number }) {
-  const [options, setOptions] = useState<string[]>([]), [draft, setDraft] = useState(value);
-  useEffect(() => { api<{ tenants: string[] }>('/tenants').then(r => setOptions(r.tenants)).catch(() => setOptions([])); }, [revision]);
-  useEffect(() => setDraft(value), [value]);
-  // Switch only on Enter or a picked option; leaving the field restores the current tenant.
-  const commit = (next: string) => { const tenant = next.trim(); if (tenant && tenant !== value) onChange(tenant); else setDraft(value); };
-  return <AutoComplete aria-label="租户" style={{ width: 200 }} value={draft} placeholder="租户，如 demo-tenant"
-    options={options.map(t => ({ value: t }))} onChange={setDraft} onSelect={commit} onBlur={() => setDraft(value)}
-    onKeyDown={e => { if (e.key === 'Enter') commit(draft); if (e.key === 'Escape') setDraft(value); }} />;
+type TenantItem = { tenant_id: string; name: string | null; registered: boolean };
+
+function BusinessSetup({ suggestion, onDone }: { suggestion: string; onDone: (tenant: string) => void }) {
+  const [name, setName] = useState(''), [code, setCode] = useState(suggestion), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    const tenant = code.trim();
+    try { await api(`/tenants/${encodeURIComponent(tenant)}`, 'PUT', { name: name.trim() }); onDone(tenant); }
+    catch (e) { setError(e instanceof Error ? e.message : '保存失败'); } finally { setBusy(false); }
+  }
+  return <section className="panel"><form onSubmit={submit} style={{ maxWidth: 560, display: 'grid', gap: 14 }}>
+    <div><h2>设置业务系统</h2><p className="muted">首次使用，请先填写接入额度管理的业务系统。之后的所有规则和客户端凭据都属于这个业务系统。</p></div>
+    {error && <div className="error-box" role="alert">{error}</div>}
+    <label>业务系统名称 *<input value={name} required maxLength={100} placeholder="数康智医" onChange={e => setName(e.target.value)} /></label>
+    <label>系统代码 *<input value={code} required maxLength={64} pattern="[A-Za-z0-9._\-]+" placeholder="shukang-zhiyi" onChange={e => setCode(e.target.value)} />
+      <small className="muted">{suggestion && code === suggestion ? '已有数据使用这个代码，沿用它即可接上已有规则。' : '只能用英文字母、数字和 . _ -。设置后不能修改，规则和凭据都绑定在它上面。'}</small></label>
+    <div className="form-actions"><button disabled={busy}>{busy ? '保存中…' : '开始使用'}</button></div>
+  </form></section>;
+}
+
+function TenantSwitch({ items, value, onChange }: { items: TenantItem[]; value: string; onChange: (tenant: string) => void }) {
+  const current = items.find(t => t.tenant_id === value);
+  if (items.length <= 1) return <span title={value} style={{ fontWeight: 650, marginRight: 8 }}>{current?.name || value}</span>;
+  return <Select aria-label="业务系统" style={{ width: 220 }} value={value} onChange={onChange}
+    options={items.map(t => ({ value: t.tenant_id, label: `${t.name}（${t.tenant_id}）` }))} />;
 }
 
 function App() {
@@ -58,10 +75,16 @@ function App() {
     window.addEventListener('admin-session-expired', expired);
     return () => window.removeEventListener('admin-session-expired', expired);
   }, []);
+  const [tenants, setTenants] = useState<TenantItem[] | null>(null);
   useEffect(() => {
-    if (!user || tenant) return;
-    api<{ tenants: string[] }>('/tenants').then(r => { if (r.tenants[0]) changeTenant(r.tenants[0]); }).catch(() => undefined);
-  }, [user, tenant]);
+    if (!user) { setTenants(null); return; }
+    api<{ items: TenantItem[] }>('/tenants').then(r => setTenants(r.items)).catch(e => { setTenants([]); setError(e instanceof Error ? e.message : '业务系统加载失败'); });
+  }, [user]);
+  const registered = (tenants ?? []).filter(t => t.registered);
+  useEffect(() => {
+    // Single business system in practice: keep the remembered one if still registered, else the first.
+    if (tenants && !registered.some(t => t.tenant_id === tenant)) changeTenant(registered[0]?.tenant_id ?? '');
+  }, [tenants]); // eslint-disable-line react-hooks/exhaustive-deps
   function changeTenant(next: string) { setTenant(next); remember(TENANT_KEY, next); setNotice(''); setError(''); }
   function go(next: string) { setSection(next); remember(SECTION_KEY, next); setNotice(''); setError(''); }
   async function logout() {
@@ -72,14 +95,16 @@ function App() {
   function changed(message: string) { setNotice(message); setRevision(r => r + 1); }
   if (initializing) return <div className="loading">正在连接配额管理平台…</div>;
   if (!user) return <Login initialError={error} onLogin={u => { setUser(u); setError(''); }} />;
-  const title = navigation.flatMap(group => group.items).find(([key]) => key === section)?.[1] || '配额管理';
+  const title = tenants && !tenant ? '设置业务系统' : navigation.flatMap(group => group.items).find(([key]) => key === section)?.[1] || '配额管理';
   const props: PageProps = { tenant, revision, onChanged: changed };
   const name = user.username || '管理员密钥';
   return <div className={`admin-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}><Sidebar groups={navigation} section={section} onCollapse={setSidebarCollapsed} onNavigate={go} />
-    <div className="workspace"><header className="workspace-header"><span>配额管理 <span className="muted"> / {title}</span></span><div><TenantPicker value={tenant} onChange={changeTenant} revision={revision} /><span className="avatar">{name.slice(0, 1).toUpperCase()}</span>{name}<button className="ghost" disabled={busy} onClick={() => void logout()}>退出</button></div></header>
-      <main className="main"><div className="topbar"><div><p className="eyebrow">TENANT · {tenant || '未选择'}</p><h1>{title}</h1></div><button className="secondary" onClick={() => { setRevision(r => r + 1); setNotice(''); }}>刷新</button></div>
+    <div className="workspace"><header className="workspace-header"><span>配额管理 <span className="muted"> / {title}</span></span><div>{tenant && <TenantSwitch items={registered} value={tenant} onChange={changeTenant} />}<span className="avatar">{name.slice(0, 1).toUpperCase()}</span>{name}<button className="ghost" disabled={busy} onClick={() => void logout()}>退出</button></div></header>
+      <main className="main"><div className="topbar"><div><p className="eyebrow">{tenant ? `BUSINESS · ${tenant}` : 'SETUP'}</p><h1>{title}</h1></div><button className="secondary" onClick={() => { setRevision(r => r + 1); setNotice(''); }}>刷新</button></div>
         {error && <div className="error-box" role="alert">{error}</div>}{notice && <p className="notice" role="status">{notice}</p>}
-        {!tenant ? <section className="panel"><h2>请选择租户</h2><p className="muted">在右上角输入或选择租户。新租户输入名称后按回车，即可开始配置。</p></section> : <>
+        {tenants === null ? <div className="loading">正在加载…</div> : !tenant ? <BusinessSetup
+          suggestion={(tenants.length === 1 && !tenants[0].registered) ? tenants[0].tenant_id : ''}
+          onDone={code => { setTenants(current => [...(current ?? []).filter(t => t.tenant_id !== code), { tenant_id: code, name: '', registered: true }]); changeTenant(code); changed('业务系统已设置'); api<{ items: TenantItem[] }>('/tenants').then(r => setTenants(r.items)).catch(() => undefined); }} /> : <>
           <Overview tenant={tenant} revision={revision} />
           <div key={`${section}:${tenant}`}>
             {section === 'services' && <ServicesPage {...props} />}

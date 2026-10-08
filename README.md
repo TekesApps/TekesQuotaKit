@@ -125,7 +125,7 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a deployment ch
 | Subjects and access | Subject levels, client credentials |
 | Runtime data (read-only) | Usage, tokens, session items, ledger |
 
-Pick or type a tenant in the header. Edits go through the same validated admin API that scripts use. Credential and token hashes are never shown.
+On first sign-in the console asks for the business system: a display name, such as 数康智医, and a code, such as `shukang-zhiyi`, which becomes the tenant ID for every rule and client. After that the console works in that business system and shows its name in the header; a switcher appears only if several are registered. Edits go through the same validated admin API that scripts use. Credential and token hashes are never shown.
 
 Under **Client credentials**, choose a Client ID, Service, role, and the API base URL the client will use. The console generates a random key, stores only its hash, and downloads a Markdown integration contract containing the plaintext key, binding, Service settings, child mappings, and the relevant API sequence. This download is the only time the plaintext key is available. **Rotate** on an existing client immediately invalidates the old key. Keep the downloaded file out of Git and out of client-side code.
 

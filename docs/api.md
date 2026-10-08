@@ -149,7 +149,8 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | POST | `/v1/admin/session/login` | none (guard header) | Sign in to the web admin; sets the session cookie. |
 | GET | `/v1/admin/session` | admin | Current account (`username`, `expires_at`, `via`). |
 | POST | `/v1/admin/session/logout` | admin | Revoke the session and clear the cookie. |
-| GET | `/v1/admin/tenants` | admin | Tenant IDs found in Levels, Quotas, Services, clients, and assignments. |
+| GET | `/v1/admin/tenants` | admin | Registered business systems plus tenant IDs that only appear in data. |
+| PUT | `/v1/admin/tenants/{tenant}` | admin | Register a business system or rename it. |
 | GET | `/admin` | none | Admin web console (HTML, opens on the sign-in page). |
 | GET | `/admin/assets/{file}` | none | Hashed console script and stylesheet. |
 | GET | `/docs` | none | OpenAPI UI (FastAPI default). |
@@ -417,6 +418,26 @@ Creates or replaces a client with a key you supply.
 | `role` | string | `issuer`, `provider`, or `consumer`. |
 
 Response: `{"client_id": "..."}`. Replacing an existing client overwrites its key, tenant, Service, and role immediately; the old key stops working. This route does not check that the Service exists. Prefer the provision endpoint, which generates the key and validates the Service.
+
+### Business systems (tenants)
+
+A tenant ID is the scope of every rule and client. Admin `PUT` calls may still use a new tenant ID implicitly, as scripts did before; registering it adds a display name and lets the console offer it.
+
+`PUT /v1/admin/tenants/{tenant}` with `{"name": "数康智医"}` registers the business system, or renames it if already registered. The tenant ID must match `[A-Za-z0-9._-]{1,64}`; the name must be 1–100 non-blank characters. Both errors return 400. There is no delete.
+
+`GET /v1/admin/tenants` returns:
+
+```json
+{
+  "tenants": ["legacy", "shukang-zhiyi"],
+  "items": [
+    {"tenant_id": "legacy", "name": null, "registered": false},
+    {"tenant_id": "shukang-zhiyi", "name": "数康智医", "registered": true}
+  ]
+}
+```
+
+`tenants` lists every ID; `items` marks which are registered. An unregistered ID appears when admin calls used it without registration.
 
 ### PUT /v1/admin/tenants/{tenant}/quotas/{quota_code}
 

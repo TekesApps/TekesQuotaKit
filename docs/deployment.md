@@ -86,6 +86,10 @@ Do not rely on `init-schema` for upgrades. It creates missing tables but does no
 
 The web admin sign-in adds three tables (`tq_admin_users`, `tq_admin_sessions`, `tq_admin_login_attempts`) and changes no existing table. Run `tekes-quota-kit init-schema`, or apply `migrations/add_admin_accounts_mysql.sql` once. Then create the first account, as below.
 
+### Upgrading a 0.3.x install
+
+0.4.0 adds one table, `tq_tenants`, for the business system the console asks for on first sign-in. Run `tekes-quota-kit init-schema`, or apply `migrations/add_tenants_mysql.sql` once. No existing table changes.
+
 ### Web admin accounts
 
 The console has no sign-up. Create accounts on the server, with the same environment as `serve`:

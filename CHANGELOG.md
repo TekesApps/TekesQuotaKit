@@ -8,6 +8,27 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Business system registry (`tq_tenants`) and `PUT /v1/admin/tenants/{tenant}` to register a
+  business system with a display name. `GET /v1/admin/tenants` also returns `items` with each
+  tenant's name and whether it is registered. Upgrades run `init-schema` or
+  `migrations/add_tenants_mysql.sql`.
+
+### Changed
+
+- The console asks for the business system (name and code) on first sign-in, then works in it and
+  shows its name in the header. The free-text tenant box is gone, so a typo can no longer start an
+  empty tenant. A switcher appears only when several business systems are registered.
+
+### Fixed
+
+- Dropdown text in the console was pushed down and clipped, and editor controls ranged from 38 to
+  50px tall. The Shukang admin stylesheet sizes every bare `input`, including antd's internal ones.
+  `antd-overrides.css` hands those back to antd and fixes all field controls at 38px.
+- CI runs a Playwright layout test that opens every editor and fails if any control is not 38px,
+  clips its text, or is off-center by more than 1px.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

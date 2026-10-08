@@ -1,0 +1,38 @@
+/*
+ * admin.css (copied verbatim from the Shukang admin) styles every bare `input` with
+ * min-height, padding, border and background. antd renders its own <input> inside
+ * Select, AutoComplete and similar controls and sizes it itself, so those global rules
+ * made the inner input taller than its frame: text sat low and its bottom was clipped.
+ * Hand every antd-internal input back to antd. Loaded after admin.css.
+ */
+.ant-select input,
+.ant-select-input,
+.ant-input-affix-wrapper input {
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/*
+ * One control height everywhere, matching antd's controlHeight (38px). Without this, text
+ * inputs grew to 39px from padding plus line height and datetime-local to 41px. Only direct
+ * children of a field label are targeted, so antd-internal inputs keep the rule above.
+ */
+.admin-shell label > input:not([type="checkbox"]):not([type="radio"]) {
+  height: 38px;
+  min-height: 38px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/*
+ * Field labels are grids. When a neighbouring field has a hint line, the row is taller and
+ * the grid stretched this field's control to fill it (up to 50px). Keep fields top-aligned.
+ */
+.admin-shell label {
+  align-content: start;
+}
