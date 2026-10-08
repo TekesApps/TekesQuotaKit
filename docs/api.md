@@ -83,7 +83,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | `invalid_member` | 400 | Parent equals child, `max_uses` out of range, or parent is not composite / child is not atomic. |
 | `invalid_limit_mode` | 400 | `limit_mode` is not `finite` or `unlimited`. |
 | `invalid_limit` | 400 | `finite` needs `limit_value >= 0`; `unlimited` needs `limit_value` null. Also raised by `expire-sessions` when `--limit` is outside 1 to 5000. |
-| `invalid_period` | 400 | `period_kind` is not `day`, `month`, or `level_term`. |
+| `invalid_period` | 400 | `period_kind` is not `day`, `week`, `month`, or `level_term`. |
 | `invalid_timezone` | 400 | `timezone` is not a known IANA zone. |
 | `invalid_subject` | 400 | Subject ID is not a positive integer up to 2^63-1. |
 | `invalid_effective_at` | 400 | `effective_at` is more than 5 seconds in the past. |
@@ -490,7 +490,7 @@ Removes a mapping. Response: `{"deleted": true}`. Returns `unknown_member` (404)
 | --- | --- | --- | --- |
 | `limit_mode` | string | | `finite` or `unlimited`. |
 | `limit_value` | integer or null | `null` | Required and `>= 0` for `finite`; must be null for `unlimited`. |
-| `period_kind` | string | | `day`, `month`, or `level_term`. |
+| `period_kind` | string | | `day`, `week`, `month`, or `level_term`. `week` runs from Monday 00:00 to the next Monday 00:00 in `timezone`. |
 | `timezone` | string | `Asia/Shanghai` | IANA zone name. Defines where `day` and `month` periods start. Set it explicitly. |
 
 Response: `{"level_code": "...", "quota_code": "..."}`. The Level and Quota must exist. `limit_mode` and `limit_value` can be changed in place. Immutable: changing `period_kind` or `timezone` on an existing Limit returns `period_immutable` (409), because usage counters are keyed by period start.

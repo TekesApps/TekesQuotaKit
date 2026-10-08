@@ -14,7 +14,7 @@ TekesQuotaKit is a small FastAPI + SQLAlchemy service that acts as a shared enti
 | **Service** | Something a backend performs for a user, identified by `service_code` (and an integer `service_id`). `atomic` or `composite`; `instant` or `durable`. |
 | **Quota** | A countable allowance with a `unit_code` and a `metering_mode` of `per_use` or `reported_usage`. A Service charges one Quota. |
 | **Level** | A tier assigned to a subject, such as `regular` or `premium`. |
-| **Limit** | For one Level and one Quota: `finite` with a `limit_value`, or `unlimited`, over a period of `day`, `month`, or `level_term`. |
+| **Limit** | For one Level and one Quota: `finite` with a `limit_value`, or `unlimited`, over a period of `day`, `week` (Monday 00:00 to Monday 00:00), `month`, or `level_term`, computed in the Limit's timezone. |
 | **Assignment** | Links a subject (positive integer `subject_id`, scoped by tenant) to a Level, with optional `effective_at`, `expires_at`, and `renew_term`. |
 | **Client credential** | A long random key bound to one tenant, one Service, and one role (`issuer`, `provider`, or `consumer`). Only its SHA-256 hash is stored. |
 | **Token** | Created per subject and request by `redeem` or `token`; used for settlement, use, stop, refund, and status. |
@@ -148,7 +148,7 @@ Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKE
 ## Known limitations
 
 - Alpha, pre-1.0. The API and schema may change.
-- Units are integers. Periods are `day`, `month`, or `level_term` only.
+- Units are integers. Periods are `day`, `week`, `month`, or `level_term` only.
 - Reported-usage calls can exceed a finite Limit, because admission checks current usage and concurrent settlements land later. Callers must bound concurrency and maximum per-call usage.
 - One parent Service per client credential.
 - Versioned Service-to-Quota mappings and a shared grant spanning separately deployed providers are not implemented.
