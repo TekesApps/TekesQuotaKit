@@ -143,6 +143,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | POST | `/v1/begin` | client, `provider` | Legacy alias: open a durable session (`request_key` required). |
 | POST | `/v1/close` | client, `provider` + `X-Subject-ID` | Legacy alias: close a durable session. |
 | PUT | `/v1/admin/clients/{client_id}` | admin | Create or replace a client with a caller-supplied key. |
+| DELETE | `/v1/admin/tenants/{tenant}/clients/{client_id}` | admin | Revoke a client: its key stops working at once. 404 `unknown_client` if it does not exist in that tenant. Issued tokens keep their records. |
 | POST | `/v1/admin/clients/{client_id}/provision` | admin | Create or rotate a client with a generated key; returns a Markdown contract. |
 | PUT | `/v1/admin/tenants/{tenant}/quotas/{quota_code}` | admin | Create a Quota (or confirm an identical one). |
 | PUT | `/v1/admin/tenants/{tenant}/levels/{level_code}` | admin | Create a Level. |

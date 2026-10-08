@@ -5,14 +5,14 @@ import zhCN from 'antd/locale/zh_CN';
 import { api, ApiError } from './api';
 import type { User } from './types';
 import { Sidebar, type NavigationGroup } from './sidebar';
-import { AssignmentsPage, ClientsPage, DataPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
+import { AssignmentsPage, BusinessPage, ClientsPage, DataPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
 import './admin.css';
 import './login.css';
 import './antd-overrides.css';
 
 const navigation: NavigationGroup[] = [
   { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 额度'], ['levels', 'Level 等级'], ['limits', '额度规则']] },
-  { label: '用户与接入', items: [['assignments', '用户等级'], ['clients', '客户端凭据']] },
+  { label: '用户与接入', items: [['business', '业务系统'], ['assignments', '用户等级'], ['clients', '客户端凭据']] },
   { label: '运行数据', items: [['usage', '用量'], ['tokens', '凭证'], ['token_items', '场次明细'], ['ledger', '流水']] },
 ];
 const TENANT_KEY = 'tq-admin-tenant';
@@ -79,7 +79,7 @@ function App() {
   useEffect(() => {
     if (!user) { setTenants(null); return; }
     api<{ items: TenantItem[] }>('/tenants').then(r => setTenants(r.items)).catch(e => { setTenants([]); setError(e instanceof Error ? e.message : '业务系统加载失败'); });
-  }, [user]);
+  }, [user, revision]);
   const registered = (tenants ?? []).filter(t => t.registered);
   useEffect(() => {
     // Single business system in practice: keep the remembered one if still registered, else the first.
@@ -114,6 +114,7 @@ function App() {
             {section === 'limits' && <LimitsPage {...props} />}
             {section === 'assignments' && <AssignmentsPage {...props} />}
             {section === 'clients' && <ClientsPage {...props} />}
+            {section === 'business' && <BusinessPage {...props} />}
             {dataPages.includes(section) && <DataPage {...props} kind={section} />}
           </div>
         </>}

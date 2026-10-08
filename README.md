@@ -122,7 +122,7 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a deployment ch
 | Group | Pages |
 | --- | --- |
 | Rules | Services, composite members, Quotas, Levels, limit rules |
-| Subjects and access | Subject levels, client credentials |
+| Subjects and access | Business system (name and user ID definition), subject levels, client credentials (issue Service or member-sync credentials, rotate, delete) |
 | Runtime data (read-only) | Usage, tokens, session items, ledger |
 
 On first sign-in the console asks for the business system: a display name, such as 数康智医, and a code, such as `shukang-zhiyi`, which becomes the tenant ID for every rule and client. After that the console works in that business system and shows its name in the header; a switcher appears only if several are registered. Edits go through the same validated admin API that scripts use. Credential and token hashes are never shown.

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, download, enc } from './api';
 import { Actions, Editor, Pager, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
 import { columnNames, type Row, text, time } from './types';
@@ -163,6 +163,39 @@ export function AssignmentsPage(props: PageProps) {
   }} />;
 }
 
+type TenantItem = { tenant_id: string; name: string | null; subject_id_definition: string | null };
+
+export function BusinessPage({ tenant, revision, onChanged }: PageProps) {
+  const [name, setName] = useState(''), [definition, setDefinition] = useState('');
+  const [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => {
+    api<{ items: TenantItem[] }>('/tenants').then(r => {
+      const item = r.items.find(t => t.tenant_id === tenant);
+      setName(item?.name || ''); setDefinition(item?.subject_id_definition || ''); setLoaded(true);
+    }).catch(e => setError(e instanceof Error ? e.message : '加载失败'));
+  }, [tenant, revision]);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      await api(`/tenants/${enc(tenant)}`, 'PUT', { name: name.trim(), subject_id_definition: definition.trim() });
+      onChanged('已保存。已签发的接入说明不会自动更新，需要的话请在“客户端凭据”里轮换密钥重新下载');
+    } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); } finally { setBusy(false); }
+  }
+  return <section className="panel">
+    <div className="panel-head"><div><h2>业务系统</h2><p className="muted">业务系统名称和用户 ID 定义。用户 ID 定义会写进本业务系统签发的每一份接入说明。</p></div></div>
+    {error && <div className="error-box" role="alert">{error}</div>}
+    {loaded && <form onSubmit={save} style={{ display: 'grid', gap: 14, maxWidth: 640 }}>
+      <div className="grid two">
+        <label>业务系统名称 *<input value={name} required maxLength={100} onChange={e => setName(e.target.value)} /></label>
+        <label>系统代码<input value={tenant} disabled /><small className="muted">设置后不能修改</small></label>
+      </div>
+      <label>用户 ID 定义 *<input value={definition} required maxLength={500} placeholder="例如：user_table.id" onChange={e => setDefinition(e.target.value)} />
+        <small className="muted">按业务系统实际情况填写：subject_id 是哪张表的哪个整数字段。会员同步和所有服务请求都必须使用这个 ID。union_id、openid 这类字符串不能直接用，需要先换成整数 ID。</small></label>
+      <div className="form-actions"><button disabled={busy}>{busy ? '保存中…' : '保存'}</button></div>
+    </form>}
+  </section>;
+}
+
 export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const [offset, setOffset] = useState(0), [form, setForm] = useState<Row | null>(null);
   // The business system's stored user ID definition, prefilled so every credential quotes the same one.
@@ -173,13 +206,26 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
       .catch(() => setDefinition(''));
   }, [tenant, revision]);
   const open = (row: Row) => setForm({ ...row, subject_id_definition: definition });
+  const [error, setError] = useState('');
+  async function remove(row: Row) {
+    const id = String(row.client_id);
+    const typed = window.prompt(`删除后这把密钥立即失效，使用它的后台会收到 401。\n请输入 Client ID“${id}”确认删除：`);
+    if (typed === null) return;
+    if (typed.trim() !== id) { setError('输入的 Client ID 不一致，没有删除'); return; }
+    setError('');
+    try { await api(`/tenants/${enc(tenant)}/clients/${enc(id)}`, 'DELETE'); onChanged(`已删除凭据 ${id}`); }
+    catch (e) { setError(e instanceof Error ? e.message : '删除失败'); }
+  }
   const result = useTable('tq_clients', tenant, revision, offset);
   const services = useCodes('tq_services', 'service_code', tenant, revision);
   const columns: Column[] = [
     column('client_id'),
     column('service_code', { render: row => row.role === 'membership' ? <span className="muted">不绑定（会员同步）</span> : <span className="code">{text(row.service_code)}</span> }),
     column('role'),
-    { key: '_actions', title: '操作', render: row => <Actions items={[{ label: '轮换密钥', danger: true, action: () => open({ ...row, rotate: true, base_url: 'http://127.0.0.1:9460' }) }]} /> },
+    { key: '_actions', title: '操作', render: row => <Actions items={[
+      { label: '轮换密钥', danger: true, action: () => open({ ...row, rotate: true, base_url: 'http://127.0.0.1:9460' }) },
+      { label: '删除', danger: true, action: () => void remove(row) },
+    ]} /> },
   ];
   const fields: Field[] = [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'wecom-door' },
@@ -190,7 +236,8 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'rotate', label: '轮换已有密钥（旧密钥立即失效）', type: 'checkbox' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">每个服务签发一份“准入+执行”凭据，另签发一份“会员同步”凭据用来维护会员名单。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><button onClick={() => open({ role: 'consumer', base_url: 'http://127.0.0.1:9460' })}>签发凭据</button></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: 'http://127.0.0.1:9460' })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: 'http://127.0.0.1:9460' })}>签发服务凭据</button></div></div>
+    {error && <div className="error-box" role="alert">{error}</div>}
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
     {form && <Editor title={form.rotate && form.client_id ? `轮换 ${text(form.client_id)}` : '签发客户端凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={Boolean(form.rotate && form.client_id)}

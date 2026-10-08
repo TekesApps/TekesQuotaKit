@@ -216,3 +216,21 @@ def test_contracts_quote_the_operator_definition_and_require_one(tmp_path):
         },
     )
     assert "> users.id" in changed.text
+
+
+def test_deleting_a_client_revokes_its_key_within_its_business_system(tmp_path):
+    _kit, client = setup(tmp_path)
+    _, door = provision(client, "wecom-door-test", "consumer", "door_open")
+    use = {"Authorization": f"Bearer {door['client_key']}"}
+    body = {"subject_id": 42, "service_code": "door_open", "request_key": "k"}
+    assert client.post("/v1/redeem", headers=use, json=body).json()["code"] == "no_level"
+
+    wrong_tenant = client.delete(
+        "/v1/admin/tenants/other-business/clients/wecom-door-test", headers=ADMIN
+    )
+    assert wrong_tenant.status_code == 404
+    deleted = client.delete(f"/v1/admin/tenants/{TENANT}/clients/wecom-door-test", headers=ADMIN)
+    assert deleted.json() == {"client_id": "wecom-door-test", "deleted": True}
+    assert client.post("/v1/redeem", headers=use, json=body).status_code == 401
+    again = client.delete(f"/v1/admin/tenants/{TENANT}/clients/wecom-door-test", headers=ADMIN)
+    assert again.status_code == 404 and again.json()["code"] == "unknown_client"

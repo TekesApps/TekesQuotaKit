@@ -146,6 +146,11 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         )
         return {"client_id": client_id}
 
+    @app.delete("/v1/admin/tenants/{tenant}/clients/{client_id}", dependencies=[Depends(admin)])
+    def delete_client(tenant: str, client_id: str) -> dict:
+        kit.delete_client(client_id, tenant)
+        return {"client_id": client_id, "deleted": True}
+
     @app.put("/v1/admin/tenants/{tenant}/quotas/{quota_code}", dependencies=[Depends(admin)])
     def put_quota(tenant: str, quota_code: str, payload: QuotaConfig) -> dict:
         kit.put_quota(tenant, quota_code, payload.unit_code, payload.metering_mode)
