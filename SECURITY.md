@@ -39,7 +39,8 @@ guarantees.
   every client key. Store them in a secret manager or a protected environment file.
 - Keep `TEKES_QUOTA_TOKEN_SECRET` stable. Tokens are derived from it, so rotating it breaks idempotent retries of every earlier `request_key`. There is no rotation procedure.
 - Keep the default bind address `127.0.0.1` and expose the service only through a TLS reverse
-  proxy reachable by your trusted backends. Restrict `/admin` and `/v1/admin/*` to operators.
+  proxy reachable by your trusted backends. Restrict `/admin` and `/v1/admin/*` to operators where possible, and give each operator their own
+  web admin account.
 - Client keys are server credentials. Never embed a client key or the admin key in a browser,
   mobile app, or miniapp.
 - Set `X-Subject-ID` only from your backend's own authenticated user, never from unverified client

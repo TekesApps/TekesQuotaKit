@@ -82,6 +82,20 @@ Pick exactly one of these. Never run both against the same schema.
 
 Do not rely on `init-schema` for upgrades. It creates missing tables but does not alter existing ones, so it would create the two new tables while leaving the old tables without the new columns.
 
+### Upgrading a 0.2.x install
+
+The web admin sign-in adds three tables (`tq_admin_users`, `tq_admin_sessions`, `tq_admin_login_attempts`) and changes no existing table. Run `tekes-quota-kit init-schema`, or apply `migrations/add_admin_accounts_mysql.sql` once. Then create the first account, as below.
+
+### Web admin accounts
+
+The console has no sign-up. Create accounts on the server, with the same environment as `serve`:
+
+```bash
+tekes-quota-kit admin-user add --username alice
+```
+
+It prompts twice for a password of at least 12 characters. For automation, pass `--password-stdin` and write one line to standard input. `admin-user passwd`, `disable`, `enable`, and `list` manage existing accounts; `passwd` and `disable` sign the account out everywhere.
+
 ## Running in production
 
 `tekes-quota-kit serve` starts a single uvicorn process bound to `127.0.0.1:9460` by default. Keep it on localhost and terminate TLS in a reverse proxy (nginx, Caddy, or similar) in front of it.
@@ -149,7 +163,7 @@ server {
 
 ### Admin page under a path prefix
 
-The admin page can share a host with another application, for example at `https://api.example.com/user-quota/admin`. Its stylesheet and script use relative URLs, and the script derives the prefix from the page path, so the proxy only has to strip the prefix. The page must be opened without a trailing slash; the first block below redirects `/user-quota/admin/` for that reason.
+The admin page can share a host with another application, for example at `https://api.example.com/user-quota/admin`. Its assets use relative URLs, and the console derives the prefix from the page path, so the proxy only has to strip the prefix. The console also sends that prefix as `X-Admin-Base`, which scopes the session cookie to `/user-quota/v1/admin` so other applications on the host never receive it. The page must be opened without a trailing slash; the first block below redirects `/user-quota/admin/` for that reason.
 
 ```nginx
 # Inside the existing server block, before "location /".
@@ -173,7 +187,7 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Real-IP $remote_addr;
 ```
 
-The admin key is the only credential the page checks, and the admin API has no rate limit. Keep an IP allowlist or `auth_basic` in front of it.
+The `allow`/`deny` lines are optional. The console requires a signed-in account and locks a username for 15 minutes after 5 failed sign-ins, but nothing limits how often the admin key itself can be tried. If you publish the admin API without an allowlist, add a per-IP `limit_req` on `/user-quota/v1/admin/`. Size it for the console: one page change makes about ten admin API calls, so allow at least 120 requests per minute with a burst of 60.
 
 ### Container
 
@@ -269,14 +283,15 @@ mysqldump --single-transaction --default-character-set=utf8mb4 your_app \
 
 | Secret | How to rotate | Effect |
 | --- | --- | --- |
-| Admin key | Change `TEKES_QUOTA_ADMIN_KEY` and restart `serve`. | Old key stops working after restart. Admin UI users re-enter the new key. |
+| Admin key | Change `TEKES_QUOTA_ADMIN_KEY` and restart `serve`. | Old key stops working after restart for scripts. Console sessions are unaffected. |
+| Console password | `tekes-quota-kit admin-user passwd --username NAME`. | The account's sessions end immediately. |
 | Client key | `POST /v1/admin/clients/{client_id}/provision` with `"rotate": true` (or `PUT /v1/admin/clients/{client_id}` with a new key). | The new key replaces the stored hash in one transaction; the old key is rejected immediately. The client backend gets 401 until it is updated with the new key. Tokens already issued stay valid because they are bound to `client_id`, not to the key. |
 | Token secret | Not rotatable. | See "Why the token secret must stay stable". |
 
 ## Security checklist
 
 - Keep `serve` bound to `127.0.0.1` (or a private container network) and expose it only through a TLS proxy.
-- Restrict `/admin`, `/admin/app.js`, `/admin/app.css`, and `/v1/admin/...` to a VPN or internal network at the proxy. The admin key protects the admin API, but the UI should not be reachable from the internet at all.
+- Prefer restricting `/admin` and `/v1/admin/...` to a VPN or internal network at the proxy. If the console must be public, keep it on HTTPS so the session cookie is `Secure`, give each operator their own account, and rate limit the admin API per IP as described above.
 - Store `TEKES_QUOTA_ADMIN_KEY`, `TEKES_QUOTA_TOKEN_SECRET`, and the database password in a secret store or a root-readable environment file, never in the repository or image.
 - Client keys belong to trusted backends only. Never ship a client key to a browser, mobile app, or miniapp.
 - Only trusted backends set `subject_id` and `X-Subject-ID`, taken from their own authenticated session. Never forward a subject ID supplied by an end user.

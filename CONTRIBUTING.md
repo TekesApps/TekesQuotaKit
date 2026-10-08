@@ -37,6 +37,21 @@ TEKES_QUOTA_TEST_DATABASE_URL='mysql+pymysql://user:password@127.0.0.1:3306/teke
 
 Never point it at an application or production database.
 
+### Web admin
+
+The console source is in `admin-web/` (React, TypeScript, antd, Vite). Its build output is committed
+under `src/tekes_quota_kit/admin_assets/`, and CI fails if that output is stale. After changing the
+console, rebuild and commit both:
+
+```bash
+cd admin-web
+npm ci
+npm run build
+```
+
+`npm run dev` serves the console with hot reload and proxies `/v1` to a Kit running on
+`127.0.0.1:9460`. Create a local account with `uv run tekes-quota-kit admin-user add --username dev`.
+
 ## Code style
 
 - Ruff with line length 100 and rule sets `E`, `F`, `I`, `UP`, `B` (see `pyproject.toml`).

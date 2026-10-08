@@ -8,6 +8,26 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Web admin accounts: `tekes-quota-kit admin-user add|passwd|disable|enable|list`, stored in three new
+  tables. Upgrades run `init-schema` or `migrations/add_admin_accounts_mysql.sql`.
+- Sign-in for the web admin: `POST /v1/admin/session/login`, `GET /v1/admin/session`,
+  `POST /v1/admin/session/logout`. PBKDF2-SHA256 passwords, a 12-hour HttpOnly `SameSite=Strict`
+  cookie scoped to the admin API path, a 15-minute lock after 5 failed sign-ins, and an
+  `X-Admin-Request` header required on cookie-authenticated writes.
+- `GET /v1/admin/tenants` lists known tenants for the console's tenant picker.
+- CI builds the console and fails if the committed build is stale.
+
+### Changed
+
+- The web admin is rebuilt in React, TypeScript, and antd (source in `admin-web/`), following the
+  layout of the Shukang admin: a sign-in page first, then a collapsible sidebar with collapsible
+  sections, per-entity pages with editors in a side drawer, and paginated read-only data pages.
+  The build is committed under `src/tekes_quota_kit/admin_assets/`, so installs need no Node.
+- `/v1/admin/...` accepts a console session as well as the admin key. Scripts using the admin key
+  are unaffected.
+
 ## [0.2.2] - 2026-10-08
 
 ### Fixed

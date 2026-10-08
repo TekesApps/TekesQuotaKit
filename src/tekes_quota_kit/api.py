@@ -1,4 +1,3 @@
-import hmac
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -7,6 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .admin import create_admin_router
+from .admin_auth import AdminAccounts, require_admin_factory
 from .core import QuotaError, QuotaKit
 from .models import Client
 
@@ -101,9 +101,8 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             raise HTTPException(status_code=401, detail="Bearer credential required")
         return authorization.removeprefix("Bearer ")
 
-    def admin(key: Annotated[str, Depends(bearer)]) -> None:
-        if not hmac.compare_digest(key, admin_key):
-            raise HTTPException(status_code=401, detail="Invalid admin credential")
+    accounts = AdminAccounts(kit)
+    admin = require_admin_factory(accounts, admin_key)
 
     def issuer(key: Annotated[str, Depends(bearer)]) -> Client:
         return kit.client(key, "issuer")
@@ -287,5 +286,5 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
         return kit.unsettled(caller)
 
-    app.include_router(create_admin_router(kit, admin_key))
+    app.include_router(create_admin_router(kit, accounts, admin))
     return app

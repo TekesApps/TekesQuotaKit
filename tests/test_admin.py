@@ -39,26 +39,26 @@ def admin_headers():
 
 def test_admin_page_works_behind_a_path_prefix(tmp_path):
     _kit, client = setup(tmp_path)
-    page = client.get("/admin").text
-    assets = re.findall(r'(?:src|href)="([^"]+)"', page)
-    assert sorted(assets) == ["admin/app.css", "admin/app.js"]
+    response = client.get("/admin")
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
+    assets = re.findall(r'(?:src|href)="([^"]+)"', response.text)
+    assert len(assets) == 2 and all(a.startswith("admin/assets/") for a in assets)
     # A proxy maps /<prefix>/admin to /admin; relative assets must stay under the prefix.
     for prefix in ("", "/user-quota", "/a/b"):
         for asset in assets:
             public = urlparse(urljoin(f"https://quota.example.com{prefix}/admin", asset)).path
-            assert public.startswith(f"{prefix}/admin/")
+            assert public.startswith(f"{prefix}/admin/assets/")
             assert client.get(public.removeprefix(prefix)).status_code == 200
-    script = client.get("/admin/app.js").text
-    assert script.count("fetch(") == 1
-    assert "fetch(base+path" in script
-    assert "location.pathname.replace(/\\/admin\\/?$/, '')" in script
+    script = next(a for a in assets if a.endswith(".js"))
+    bundle = client.get("/" + script).text
+    assert "X-Admin-Base" in bundle and "X-Admin-Request" in bundle
+    assert client.get("/admin/assets/../index.html").status_code == 404
+    assert client.get("/admin/assets/missing.js").status_code == 404
 
 
 def test_admin_lists_all_tables_and_scopes_token_items(tmp_path):
     kit, client = setup(tmp_path)
     assert client.get("/admin").status_code == 200
-    assert client.get("/admin/app.js").status_code == 200
-    assert client.get("/admin/app.css").status_code == 200
     assert client.get("/v1/admin/tables").status_code == 401
     names = client.get("/v1/admin/tables", headers=admin_headers()).json()["tables"]
     assert len(names) == 11

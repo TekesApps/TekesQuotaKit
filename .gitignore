@@ -9,3 +9,4 @@ dist/
 .DS_Store
 # Client integration contracts downloaded from /admin contain plaintext keys
 *-quotakit.md
+admin-web/node_modules/

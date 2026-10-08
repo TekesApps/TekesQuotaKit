@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-import hmac
 import json
 import re
 from datetime import datetime
 from importlib.resources import files
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from .admin_auth import (
+    COOKIE,
+    SESSION_TTL,
+    AdminAccounts,
+    cookie_path,
+    cookie_secure,
+)
 from .core import QuotaKit
 from .models import (
     Assignment,
@@ -50,8 +56,35 @@ NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache", "X-Content-Type-O
 SAFE_CODE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+ASSET_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.(js|css|svg|woff2)$")
+ASSET_TYPES = {
+    "js": "text/javascript; charset=utf-8",
+    "css": "text/css; charset=utf-8",
+    "svg": "image/svg+xml",
+    "woff2": "font/woff2",
+}
+# antd injects component styles at runtime, so styles need 'unsafe-inline'. Scripts do not.
+PAGE_CSP = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def _asset_bytes(name: str) -> bytes:
+    return files("tekes_quota_kit").joinpath("admin_assets", name).read_bytes()
+
+
 def _asset(name: str) -> str:
-    return files("tekes_quota_kit").joinpath("admin_assets", name).read_text(encoding="utf-8")
+    return _asset_bytes(name).decode("utf-8")
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class ProvisionRequest(BaseModel):
@@ -207,34 +240,75 @@ def _client_guide(
     return "\n".join(lines)
 
 
-def create_admin_router(kit: QuotaKit, admin_key: str) -> APIRouter:
+def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -> APIRouter:
     router = APIRouter()
-
-    def authenticate(authorization: str | None = Header(default=None)) -> None:
-        supplied = authorization.removeprefix("Bearer ") if authorization else ""
-        if not hmac.compare_digest(supplied, admin_key):
-            raise HTTPException(status_code=401, detail="Invalid admin credential")
+    authenticate = require_admin
 
     @router.get("/admin", response_class=HTMLResponse)
     def page() -> HTMLResponse:
-        return HTMLResponse(
-            _asset("app.html"),
+        return HTMLResponse(_asset("index.html"), headers={**NO_STORE, **PAGE_CSP})
+
+    @router.get("/admin/assets/{name}")
+    def asset(name: str) -> Response:
+        if not ASSET_NAME.fullmatch(name):
+            raise HTTPException(status_code=404)
+        try:
+            body = _asset_bytes(f"assets/{name}")
+        except FileNotFoundError:
+            raise HTTPException(status_code=404) from None
+        media_type = ASSET_TYPES[name.rsplit(".", 1)[1]]
+        # Hashed file names are immutable; the page itself is never cached.
+        return Response(
+            body,
+            media_type=media_type,
             headers={
-                **NO_STORE,
-                "Content-Security-Policy": (
-                    "default-src 'none'; script-src 'self'; style-src 'self'; "
-                    "connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'none'"
-                ),
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "X-Content-Type-Options": "nosniff",
             },
         )
 
-    @router.get("/admin/app.js")
-    def script() -> Response:
-        return Response(_asset("app.js"), media_type="text/javascript", headers=NO_STORE)
+    @router.post("/v1/admin/session/login")
+    def login(payload: LoginRequest, request: Request, response: Response) -> dict:
+        if request.headers.get("X-Admin-Request") != "1":
+            raise HTTPException(status_code=403, detail="缺少请求保护头")
+        path = cookie_path(request)
+        token = accounts.login(payload.username.strip(), payload.password)
+        response.set_cookie(
+            COOKIE,
+            token,
+            max_age=int(SESSION_TTL.total_seconds()),
+            path=path,
+            secure=cookie_secure(request),
+            httponly=True,
+            samesite="strict",
+        )
+        response.headers.update(NO_STORE)
+        return {"data": accounts.session_user(token)}
 
-    @router.get("/admin/app.css")
-    def stylesheet() -> Response:
-        return Response(_asset("app.css"), media_type="text/css", headers=NO_STORE)
+    @router.get("/v1/admin/session")
+    # `require_admin` is a closure, which postponed annotations cannot resolve inside
+    # Annotated[...]; a default-argument dependency avoids that.
+    def session(user: dict = Depends(require_admin)) -> dict:  # noqa: B008
+        return {"data": user}
+
+    @router.post("/v1/admin/session/logout")
+    def logout(
+        request: Request,
+        response: Response,
+        user: dict = Depends(require_admin),  # noqa: B008
+    ) -> dict:
+        if user["via"] == "session":
+            accounts.logout(request.cookies.get(COOKIE, ""))
+        response.delete_cookie(COOKIE, path=cookie_path(request))
+        return {"data": {"status": "logged_out"}}
+
+    @router.get("/v1/admin/tenants", dependencies=[Depends(authenticate)])
+    def tenants() -> dict:
+        with kit.sessions() as db:
+            found = set()
+            for model in (Level, Quota, Service, Client, Assignment):
+                found.update(db.scalars(select(model.tenant_id).distinct()))
+        return {"tenants": sorted(found)}
 
     @router.get("/v1/admin/tables", dependencies=[Depends(authenticate)])
     def table_names() -> dict:

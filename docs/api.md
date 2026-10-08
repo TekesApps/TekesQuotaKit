@@ -10,11 +10,12 @@ A **tenant** groups all configuration. A **Quota** is a counter definition (`uni
 
 ## Authentication
 
-All authenticated routes take `Authorization: Bearer <key>`.
+Consumer routes take `Authorization: Bearer <client key>`. Admin routes accept either the admin key as a Bearer credential, for scripts, or a web admin session cookie, for the browser console.
 
 | Credential | Used for | Rules |
 | --- | --- | --- |
-| Admin key | `/v1/admin/...` routes | Set by `TEKES_QUOTA_ADMIN_KEY`. Must be at least 32 characters or the server refuses to start. Compared with `hmac.compare_digest`. |
+| Admin key | `/v1/admin/...` routes | Set by `TEKES_QUOTA_ADMIN_KEY`. Must be at least 32 characters or the server refuses to start. Compared with `hmac.compare_digest`. If an `Authorization` header is present it must be valid; a session cookie does not rescue a wrong Bearer key. |
+| Web admin session | `/v1/admin/...` routes | `tq_admin_session` cookie set by `POST /v1/admin/session/login`. See [Web admin sessions](#web-admin-sessions). |
 | Client key | Consumer routes (`/v1/redeem`, `/v1/token`, ...) | Created with `PUT /v1/admin/clients/{client_id}` (you supply the key, at least 32 characters) or `POST /v1/admin/clients/{client_id}/provision` (the server generates it). Only a SHA-256 hash is stored. |
 
 Each client row holds `tenant_id`, `service_code`, and `role`. A client can only act on its own tenant and its own Service; requests for any other Service fail with `service_forbidden` (403) or `scope_mismatch` (403).
@@ -145,13 +146,37 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | PUT | `/v1/admin/tenants/{tenant}/subjects/{subject_id}/level` | admin | Assign a subject to a Level. |
 | GET | `/v1/admin/tables` | admin | List browsable table names. |
 | GET | `/v1/admin/tables/{name}` | admin | Browse rows of one `tq_` table for one tenant. |
-| GET | `/admin` | none (page asks for the admin key) | Admin web UI (HTML). |
-| GET | `/admin/app.js` | none | Admin UI script. |
-| GET | `/admin/app.css` | none | Admin UI stylesheet. |
+| POST | `/v1/admin/session/login` | none (guard header) | Sign in to the web admin; sets the session cookie. |
+| GET | `/v1/admin/session` | admin | Current account (`username`, `expires_at`, `via`). |
+| POST | `/v1/admin/session/logout` | admin | Revoke the session and clear the cookie. |
+| GET | `/v1/admin/tenants` | admin | Tenant IDs found in Levels, Quotas, Services, clients, and assignments. |
+| GET | `/admin` | none | Admin web console (HTML, opens on the sign-in page). |
+| GET | `/admin/assets/{file}` | none | Hashed console script and stylesheet. |
 | GET | `/docs` | none | OpenAPI UI (FastAPI default). |
 | GET | `/openapi.json` | none | OpenAPI schema (FastAPI default). |
 
-The admin UI page, script, and stylesheet are served without authentication and with `Cache-Control: no-store`. The page sends the admin key you type as a Bearer header to the admin API; it does not store it in browser storage.
+The console page and its assets are served without authentication. The page has `Cache-Control: no-store` and a Content Security Policy that allows only same-origin scripts and connections. Hashed assets are cached as immutable. All data comes from the admin API, which requires a session or the admin key.
+
+## Web admin sessions
+
+Accounts are created on the server with `tekes-quota-kit admin-user add` (see the README's CLI table). There is no sign-up endpoint.
+
+`POST /v1/admin/session/login` takes `{"username": "...", "password": "..."}` and requires two headers:
+
+| Header | Purpose |
+| --- | --- |
+| `X-Admin-Request: 1` | Required on sign-in and on every cookie-authenticated `POST`, `PUT`, `PATCH`, or `DELETE`. The service adds no CORS headers, so a cross-site page cannot send it; missing it returns 403. |
+| `X-Admin-Base` | The path prefix the console is served under, such as `/user-quota`, or empty at the root. It sets the cookie path to `<prefix>/v1/admin`, so the cookie is never sent to other applications on the same host. |
+
+On success the response sets `tq_admin_session` with `HttpOnly`, `SameSite=Strict`, a 12-hour `Max-Age`, and `Secure` when the request arrived over HTTPS (`X-Forwarded-Proto: https`). The body is `{"data": {"username": "...", "expires_at": "...Z", "via": "session"}}`.
+
+| Status | Meaning |
+| --- | --- |
+| 401 | Wrong username or password, or a disabled account. Unknown usernames take as long as known ones. |
+| 429 | 5 failed sign-ins for this username in the last 15 minutes. |
+| 400 | `X-Admin-Base` is not a plain path prefix. |
+
+Sessions end at expiry, on `POST /v1/admin/session/logout`, or when `admin-user passwd` or `admin-user disable` runs for the account. Passwords are stored as PBKDF2-SHA256 with 600,000 rounds.
 
 ## Token lifecycle
 
