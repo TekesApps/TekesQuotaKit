@@ -593,7 +593,7 @@ Creates a client with a server-generated key, or rotates the key of an existing 
 | `tenant_id` | string | | 1 to 64 characters. |
 | `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). Ignored for `membership`. |
 | `role` | string | | `issuer`, `provider`, `consumer`, or `membership` (422 otherwise). |
-| `subject_id_definition` | string | stored value | Up to 500 characters, written by an operator: what `subject_id` is in this business system, for example `user_table.id`. Saved on the business system and quoted in every contract it issues. Required until one is stored (400 otherwise, and no key is generated); later requests may omit it to reuse the stored text, or send new text to replace it. |
+| `subject_id_definition` | string | stored value | Up to 500 characters, written by an operator: what `subject_id` is in this business system, for example `user_table.id`. Saved on the business system and quoted in every contract it issues. Required until one is stored (400 otherwise, and no key is generated). Once stored it cannot be changed by issuing: omit it or send the same text; different text returns 409. Change it with `PUT /v1/admin/tenants/{tenant}` (the console's 业务系统 page). |
 | `base_url` | string | | 8 to 512 characters. `http` or `https` URL with a host and no credentials, query, fragment, or whitespace (400 otherwise). Written into the contract as the API base URL. |
 | `rotate` | boolean | `false` | Must be true to replace an existing client (`client_exists`, 409, otherwise). |
 

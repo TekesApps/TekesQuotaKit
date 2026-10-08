@@ -203,18 +203,27 @@ def test_contracts_quote_the_operator_definition_and_require_one(tmp_path):
     assert reused.status_code == 200 and f"> {DEFINITION}" in reused.text
     listed = client.get("/v1/admin/tenants", headers=ADMIN).json()["items"]
     assert [i["subject_id_definition"] for i in listed if i["tenant_id"] == TENANT] == [DEFINITION]
-    # Supplying a new definition updates it for the whole business system.
-    changed = client.post(
+    # Once set, issuing cannot change it; the same text is accepted, a different one refused.
+    again = {**body, "role": "consumer", "service_code": "door_open", "rotate": True}
+    same = client.post(
         "/v1/admin/clients/wecom-door/provision",
         headers=ADMIN,
-        json={
-            **body,
-            "role": "consumer",
-            "service_code": "door_open",
-            "rotate": True,
-            "subject_id_definition": "users.id",
-        },
+        json={**again, "subject_id_definition": DEFINITION},
     )
+    assert same.status_code == 200
+    refused = client.post(
+        "/v1/admin/clients/wecom-door/provision",
+        headers=ADMIN,
+        json={**again, "subject_id_definition": "users.id"},
+    )
+    assert refused.status_code == 409 and "业务系统" in refused.json()["detail"]
+    # The business system page (PUT tenant) is the one place to change it.
+    client.put(
+        f"/v1/admin/tenants/{TENANT}",
+        headers=ADMIN,
+        json={"name": "数康智医", "subject_id_definition": "users.id"},
+    )
+    changed = client.post("/v1/admin/clients/wecom-door/provision", headers=ADMIN, json=again)
     assert "> users.id" in changed.text
 
 

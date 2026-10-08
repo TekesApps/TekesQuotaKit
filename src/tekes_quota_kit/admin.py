@@ -321,21 +321,28 @@ def _download(client_id: str, guide: str) -> Response:
 
 
 def _subject_id_definition(kit: QuotaKit, tenant: str, supplied: str | None) -> str:
-    """Save a newly supplied definition on the business system, then return the stored one.
+    """Return the business system's definition, setting it from `supplied` the first time.
 
     Every contract of a business system quotes the same definition, so the member-sync side
-    and the Service side are told the same thing about user IDs.
+    and the Service side are told the same thing about user IDs. Once set, it changes only
+    through PUT /v1/admin/tenants/{tenant} (the console's 业务系统 page), never by issuing.
     """
     text = (supplied or "").strip()
     now = utc_now()
     with kit.sessions.begin() as db:
         row = db.scalar(select(Tenant).where(Tenant.tenant_id == tenant))
-        if text:
+        stored = row.subject_id_definition if row is not None else None
+        if stored and text and text != stored:
+            raise HTTPException(
+                status_code=409,
+                detail="用户 ID 定义已设定，签发时不能修改。请到“用户与接入 → 业务系统”修改",
+            )
+        if text and not stored:
             if row is None:
                 row = Tenant(tenant_id=tenant, name=tenant, created_at=now, updated_at=now)
                 db.add(row)
             row.subject_id_definition, row.updated_at = text, now
-        stored = row.subject_id_definition if row is not None else None
+            stored = text
     if not stored:
         raise HTTPException(
             status_code=400,

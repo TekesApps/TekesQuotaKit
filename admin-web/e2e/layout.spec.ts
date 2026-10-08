@@ -48,24 +48,26 @@ test('every editor control is the same height, unclipped and centered', async ({
     await nav.click();
     const pageForm = await measure(page, '.main form');
     if (pageForm.length) expectAligned(`${name} (page)`, pageForm);
-    const add = page.locator('.panel-head button').first();
-    if (!(await add.count())) continue;
-    await add.click();
-    await expect(page.locator('.drawer-panel')).toBeVisible();
-    // Typed text is where clipping showed up, so type into the first dropdown that has one.
-    const search = page.locator('.drawer-panel .ant-select input:not([disabled])').first();
-    if (await search.count()) {
-      await search.click();
-      await page.keyboard.type('shu kang zhi yi');
+    const buttons = page.locator('.panel-head button');
+    for (let b = 0; b < await buttons.count(); b++) {
+      const label = (await buttons.nth(b).textContent())?.trim() || `button ${b}`;
+      await buttons.nth(b).click();
+      await expect(page.locator('.drawer-panel')).toBeVisible();
+      // Typed text is where clipping showed up, so type into the first dropdown that has one.
+      const search = page.locator('.drawer-panel .ant-select input:not([disabled])').first();
+      if (await search.count()) {
+        await search.click();
+        await page.keyboard.type('shu kang zhi yi');
+      }
+      expectAligned(`${name} / ${label}`, await measure(page, '.drawer-panel'));
+      // Escape closes an open dropdown first; close the drawer if it is still there.
+      await page.keyboard.press('Escape');
+      if (await page.locator('.drawer-panel').count()) await page.locator('.drawer-head button').click();
+      await expect(page.locator('.drawer-panel')).toHaveCount(0);
+      drawers++;
     }
-    expectAligned(name, await measure(page, '.drawer-panel'));
-    // Escape closes an open dropdown first; close the drawer if it is still there.
-    await page.keyboard.press('Escape');
-    if (await page.locator('.drawer-panel').count()) await page.locator('.drawer-head button').click();
-    await expect(page.locator('.drawer-panel')).toHaveCount(0);
-    drawers++;
   }
-  expect(drawers).toBeGreaterThanOrEqual(7);
+  expect(drawers).toBeGreaterThanOrEqual(8);
 });
 
 test('sets the user ID definition, issues and deletes a member-sync credential', async ({ page }) => {
@@ -86,7 +88,9 @@ test('sets the user ID definition, issues and deletes a member-sync credential',
   await page.getByRole('button', { name: '客户端凭据' }).click();
   await page.getByRole('button', { name: '签发会员同步凭据' }).click();
   await expect(page.locator('.drawer-panel .ant-select').filter({ hasText: '会员同步' })).toHaveCount(1);
+  await expect(page.locator('.drawer-panel label').filter({ hasText: 'Service' })).toHaveCount(0);
   await expect(field('.drawer-panel', '用户 ID 定义')).toHaveValue('user_table.id');
+  await expect(field('.drawer-panel', '用户 ID 定义')).toBeDisabled();
   await field('.drawer-panel', 'Client ID').fill('e2e-members');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '生成并下载' }).click();
