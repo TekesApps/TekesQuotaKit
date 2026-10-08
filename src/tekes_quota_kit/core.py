@@ -140,6 +140,15 @@ class QuotaKit:
             )
             return client
 
+    def delete_client(self, client_id: str, tenant_id: str) -> None:
+        """Revoke a client: its key stops working at once. Issued tokens keep their records."""
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(Client).where(Client.client_id == client_id, Client.tenant_id == tenant_id)
+            )
+            _require(row is not None, "unknown_client", "Client not found", 404)
+            db.delete(row)
+
     def put_client(
         self, client_id: str, key: str, tenant_id: str, service_code: str, role: str
     ) -> None:

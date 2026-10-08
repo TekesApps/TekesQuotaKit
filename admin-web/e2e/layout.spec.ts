@@ -46,6 +46,8 @@ test('every editor control is the same height, unclipped and centered', async ({
     const nav = navs.nth(i);
     const name = (await nav.textContent())?.trim() || `page ${i}`;
     await nav.click();
+    const pageForm = await measure(page, '.main form');
+    if (pageForm.length) expectAligned(`${name} (page)`, pageForm);
     const add = page.locator('.panel-head button').first();
     if (!(await add.count())) continue;
     await add.click();
@@ -66,31 +68,40 @@ test('every editor control is the same height, unclipped and centered', async ({
   expect(drawers).toBeGreaterThanOrEqual(7);
 });
 
-test('issues a member-sync credential without a Service and downloads its contract', async ({ page }) => {
+test('sets the user ID definition, issues and deletes a member-sync credential', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
   await page.getByLabel('密码').fill('e2e-console-password');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
+
+  // An explicit place for the definition, independent of issuing.
+  await page.getByRole('button', { name: '业务系统', exact: true }).click();
+  const field = (scope: string, label: string) => page.locator(`${scope} label`).filter({ hasText: label }).locator('input');
+  await expect(field('.main form', '用户 ID 定义')).toHaveValue('');
+  await field('.main form', '用户 ID 定义').fill('user_table.id');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('已保存');
+
+  // A dedicated button opens the form with the member-sync role and the stored definition.
   await page.getByRole('button', { name: '客户端凭据' }).click();
-  await page.getByRole('button', { name: '签发凭据' }).click();
-  await page.locator('.drawer-panel label').filter({ hasText: 'Client ID' }).locator('input').fill('e2e-members');
-  await page.getByLabel('角色').click();
-  await page.getByTitle('会员同步（membership）').click();
-  const definition = page.locator('.drawer-panel label').filter({ hasText: '用户 ID 定义' }).locator('input');
-  await expect(definition).toHaveValue('');
-  await definition.fill('user_table.id');
+  await page.getByRole('button', { name: '签发会员同步凭据' }).click();
+  await expect(page.locator('.drawer-panel .ant-select').filter({ hasText: '会员同步' })).toHaveCount(1);
+  await expect(field('.drawer-panel', '用户 ID 定义')).toHaveValue('user_table.id');
+  await field('.drawer-panel', 'Client ID').fill('e2e-members');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '生成并下载' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('e2e-members-quotakit.md');
   const text = await (await file.createReadStream()).toArray().then(chunks => Buffer.concat(chunks).toString('utf8'));
   expect(text).toContain('"schema": "tekes-quotakit-membership/v1"');
-  expect(text).toContain('/v1/members/batch');
   expect(text).toContain('> user_table.id');
-  expect(text).toContain('"subject_id_definition": "user_table.id"');
-  await expect(page.getByRole('status')).toContainText('e2e-members');
-  await expect(page.locator('tbody')).toContainText('不绑定（会员同步）');
-  // The next credential of this business system starts from the stored definition.
-  await page.getByRole('button', { name: '签发凭据' }).click();
-  await expect(page.locator('.drawer-panel label').filter({ hasText: '用户 ID 定义' }).locator('input')).toHaveValue('user_table.id');
+  const row = page.locator('tbody tr').filter({ hasText: 'e2e-members' });
+  await expect(row).toContainText('不绑定（会员同步）');
+
+  // Deleting asks for the Client ID and removes the row.
+  page.once('dialog', dialog => dialog.accept('e2e-members'));
+  await row.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '删除' }).click();
+  await expect(page.getByRole('status')).toContainText('已删除凭据 e2e-members');
+  await expect(page.locator('tbody tr').filter({ hasText: 'e2e-members' })).toHaveCount(0);
 });

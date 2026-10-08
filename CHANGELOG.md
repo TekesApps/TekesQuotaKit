@@ -8,6 +8,14 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- A "业务系统" page in the console to edit the business system's name and user ID definition
+  directly, without issuing a credential.
+- Deleting a client credential: `DELETE /v1/admin/tenants/{tenant}/clients/{client_id}` and a
+  "删除" action in the console that asks for the Client ID. The key stops working at once.
+- A "签发会员同步凭据" button that opens the issue form with the member-sync role selected.
+
 ## [0.6.0] - 2026-10-08
 
 ### Fixed
