@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-08
+
 ### Changed
 
 - The sidebar caption reads 配额管理平台 without the wide letter-spacing, and shows the console
@@ -195,7 +197,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.6.0...v0.7.0
