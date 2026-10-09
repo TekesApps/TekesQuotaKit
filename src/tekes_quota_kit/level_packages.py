@@ -273,7 +273,7 @@ class LevelPackages:
                         "Remove and issue another package to change its Level",
                         400,
                     )
-                    # Retain the original period start, even when extending expiry.
+                    # Issued package dates are retained; this editor only changes list order.
                     _require(
                         item.get("effective_at") in (None, row.effective_at),
                         "package_term_immutable",
@@ -282,24 +282,11 @@ class LevelPackages:
                     )
                     end = item.get("expires_at")
                     _require(
-                        end is None or end > row.effective_at,
-                        "invalid_expiry",
-                        "Expiry must follow start",
+                        end == row.expires_at,
+                        "package_term_immutable",
+                        "Issued package expiry is read-only",
                         400,
                     )
-                    for limit in db.scalars(
-                        select(Limit).where(
-                            Limit.tenant_id == tenant,
-                            Limit.level_code == level,
-                        )
-                    ):
-                        _require(
-                            limit.period_kind != "level_term" or end is not None,
-                            "missing_term_end",
-                            "Level term requires expiry",
-                            400,
-                        )
-                    row.expires_at, row.term_end = end, end
                     keep.add(row_id)
                 else:
                     start = item.get("effective_at") or now

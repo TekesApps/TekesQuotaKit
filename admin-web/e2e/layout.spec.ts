@@ -221,6 +221,14 @@ test('edits ordered Level packages inside a user and retains independent binding
   await user.getByRole('button', { name: '编辑额度包' }).click();
   let dialog = page.getByRole('dialog');
   await expect(dialog.locator('.user-package')).toHaveCount(1);
+  const issued = dialog.locator('.user-package').first();
+  for (const label of ['生效时间', '到期时间']) {
+    await expect(issued.getByLabel(label, { exact: true })).toHaveAttribute('readonly', '');
+  }
+  const removeColors = await issued.getByRole('button', { name: '移除', exact: true }).evaluate(el => {
+    const style = getComputedStyle(el); return { text: style.color, background: style.backgroundColor };
+  });
+  expect(removeColors).toEqual({ text: 'rgb(255, 255, 255)', background: 'rgb(180, 35, 24)' });
   for (let i = 2; i <= 3; i++) {
     await dialog.getByRole('button', { name: '添加等级额度包', exact: true }).click();
     await dialog.getByLabel(`等级额度包 ${i}`, { exact: true }).click();

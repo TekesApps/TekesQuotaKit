@@ -203,7 +203,7 @@ def test_concurrent_last_unit_and_sync_preserves_extras(tmp_path):
     assert redeem(client, service, "after-end").json()["code"] == "no_level"
 
 
-def test_extend_expiry_keeps_term_usage_and_duplicate_levels_are_independent(tmp_path):
+def test_issued_expiry_is_read_only_and_duplicate_levels_are_independent(tmp_path):
     kit, client, service = configured(tmp_path, mode="per_use", limit=0)
     level(kit, "term", 1, "level_term")
     now = utc_now()
@@ -220,7 +220,9 @@ def test_extend_expiry_keeps_term_usage_and_duplicate_levels_are_independent(tmp
         )
         for p in state["packages"]
     ]
-    kit.save_user_packages(TENANT, 42, items, state["revision"])
+    with pytest.raises(QuotaError, match="Issued package expiry is read-only"):
+        kit.save_user_packages(TENANT, 42, items, state["revision"])
+    assert kit.user_packages(TENANT, 42) == state
     assert balance(kit)["remaining"] == 1
     assert redeem(client, service, "term2").status_code == 200
     assert redeem(client, service, "term3").json()["code"] == "quota_exhausted"

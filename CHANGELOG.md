@@ -8,6 +8,15 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-09
+
+### Fixed
+
+- Use white text on red admin danger buttons, including the remove-package button.
+- Show issued package effective/expiry dates as readable, read-only fields. The ordered
+  package editor/API retains the original dates and rejects expiry changes; issuance and
+  membership synchronization retain their existing date rules. No schema migration needed.
+
 ## [0.10.0] - 2026-10-09
 
 ### Changed
