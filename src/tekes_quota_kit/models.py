@@ -149,6 +149,11 @@ class Assignment(Base):
     expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     term_start: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     term_end: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    # Existing membership sync keeps one replaceable package backed by tq_usage.
+    # Extra Level packages have independent usage; ordering never changes that identity.
+    package_code: Mapped[str] = mapped_column(String(64), nullable=False, default="membership")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     __table_args__ = (
         Index("ix_tq_assignment_subject", "tenant_id", "subject_id", "effective_at"),
         ForeignKeyConstraint(
@@ -171,6 +176,64 @@ class Usage(Base):
         UniqueConstraint(
             "tenant_id", "subject_id", "quota_code", "period_start", name="uq_tq_usage_period"
         ),
+    )
+
+
+class SubjectPackages(Base):
+    __tablename__ = "tq_subject_packages"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    __table_args__ = (UniqueConstraint("tenant_id", "subject_id", name="uq_tq_subject_packages"),)
+
+
+class LevelPackageUsage(Base):
+    __tablename__ = "tq_level_package_usage"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    assignment_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    used_units: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "quota_code", "period_start", name="uq_tq_level_usage"),
+        ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
+    )
+
+
+class LevelPackageCharge(Base):
+    __tablename__ = "tq_level_package_charges"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    token_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    assignment_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    legacy_usage_id: Mapped[int | None] = mapped_column(ID_TYPE)
+    package_usage_id: Mapped[int | None] = mapped_column(ID_TYPE)
+    units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["token_id"], ["tq_tokens.id"]),
+        ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
+        ForeignKeyConstraint(["legacy_usage_id"], ["tq_usage.id"]),
+        ForeignKeyConstraint(["package_usage_id"], ["tq_level_package_usage.id"]),
+        Index("ix_tq_level_charge_token", "token_id"),
+    )
+
+
+class LevelPackageAdmission(Base):
+    """Funding anchor for metered work, even if its package expires before settlement."""
+
+    __tablename__ = "tq_level_package_admissions"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    token_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    assignment_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    limit_value: Mapped[int | None] = mapped_column(BigInteger)
+    __table_args__ = (
+        UniqueConstraint("token_id", "assignment_id", name="uq_tq_level_admission"),
+        ForeignKeyConstraint(["token_id"], ["tq_tokens.id"]),
+        ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
     )
 
 

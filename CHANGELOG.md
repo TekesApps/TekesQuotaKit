@@ -8,14 +8,29 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
-## [0.9.1] - 2026-10-09
+## [0.10.0] - 2026-10-09
 
 ### Changed
 
 - Scale admin and login typography to 80% of its former size at normal browser zoom, including
   native fields and antd controls/menus. Control heights and layout dimensions remain stable.
-- Show 10 records per console page and add direct navigation to auxiliary package template
-  and user-package management above the main user Level table.
+- Show 10 records per console page, with one row per user and direct editing of all their packs.
+- Define every user package through existing Level/Quota limits on the Level limits page;
+  issue several independent copies of a Level and order them explicitly in each user editor.
+- Charge in user order, skipping unsupported, future, expired and exhausted packs; an extra
+  Level can independently authorize a Service. Priority changes retain package usage and
+  refunds restore original source periods even after reordering or removal.
+- Keep existing membership sync and legacy usage counters, with independent accounting for
+  extra Level packages, serialized charging and revision checks against stale editor saves.
+- Snapshot ordered Level funding periods and limits for metered admission; completed work
+  remains settleable after expiry/removal. Existing overage accounting is retained.
+
+### Migration
+
+- Apply `migrations/add_ordered_level_packages_mysql.sql` before upgrading an existing v0.9.x
+  installation. It adds assignment identity/order/revocation fields and four accounting tables.
+  Legacy v0.9 service top-up APIs and history are retained for compatibility; their separate
+  template/grant screens are replaced by Level package management.
 
 ## [0.9.0] - 2026-10-09
 

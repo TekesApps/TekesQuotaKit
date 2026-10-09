@@ -377,4 +377,7 @@
 .sidebar-toggle {line-height:0;}
 .sidebar-arrow {display:block;width:18px;height:18px;flex-shrink:0;}
 
-.package-navigation {margin-bottom:16px;}
+.user-package {display:grid;gap:12px;padding:16px;border:1px solid var(--line);border-radius:10px;}
+.user-package .toolbar {flex-wrap:wrap;gap:8px;}
+.package-balance {display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.ordered-package {display:inline-block;margin-right:16px;}

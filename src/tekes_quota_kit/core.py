@@ -12,11 +12,15 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from .level_packages import LevelPackages
 from .models import (
     Assignment,
     Client,
     Ledger,
     Level,
+    LevelPackageAdmission,
+    LevelPackageCharge,
+    LevelPackageUsage,
     Limit,
     Package,
     PackageCharge,
@@ -94,7 +98,7 @@ def _period(
     return start.astimezone(UTC).replace(tzinfo=None), end.astimezone(UTC).replace(tzinfo=None)
 
 
-class QuotaKit:
+class QuotaKit(LevelPackages):
     """MySQL-backed authority. Database URL points at the consumer's existing schema."""
 
     def __init__(self, database_url: str, token_secret: str) -> None:
@@ -533,9 +537,12 @@ class QuotaKit:
     def _available(
         self, db: Session, row: Token, limit: Limit, usage: Usage, now: datetime
     ) -> int | None:
-        if limit.limit_mode == "unlimited":
+        sources = self._level_sources(
+            db, row.tenant_id, row.subject_id, row.quota_code, now, lock=True
+        )
+        if any(value is None for _, value, _, _, _ in sources):
             return None
-        return max(0, limit.limit_value - usage.used_units) + sum(
+        return sum(max(0, value - counter.used_units) for _, value, _, _, counter in sources) + sum(
             max(0, g.total_units - g.used_units)
             for g in self._packages(
                 db, row.tenant_id, row.subject_id, row.service_code, row.quota_code, now, lock=True
@@ -552,12 +559,44 @@ class QuotaKit:
         *,
         allow_overdraft: bool = False,
     ) -> None:
-        main = (
-            units
-            if row.limit_value is None
-            else min(units, max(0, row.limit_value - usage.used_units))
+        self._lock_subject(db, row.tenant_id, row.subject_id)
+        sources = self._level_sources(
+            db,
+            row.tenant_id,
+            row.subject_id,
+            row.quota_code,
+            now,
+            lock=True,
+            token=row if allow_overdraft else None,
         )
-        left = units - main
+        # Tokens admitted before ordered packages retain their original period and limit.
+        if allow_overdraft and not db.scalar(
+            select(LevelPackageAdmission.token_id)
+            .where(LevelPackageAdmission.token_id == row.id)
+            .limit(1)
+        ):
+            assignment = db.scalar(
+                select(Assignment)
+                .where(
+                    Assignment.tenant_id == row.tenant_id,
+                    Assignment.subject_id == row.subject_id,
+                    Assignment.package_code == "membership",
+                )
+                .order_by(Assignment.id.desc())
+                .limit(1)
+            )
+            sources = [(assignment, row.limit_value, row.period_start, row.period_end, usage)]
+        left = units
+        allocations = []
+        for assignment, value, _, _, counter in sources:
+            take = left if value is None else min(left, max(0, value - counter.used_units))
+            if take:
+                counter.used_units += take
+                allocations.append((assignment, counter, take))
+                left -= take
+            if not left:
+                break
+        # Compatibility with v0.9 service top-ups; these are no longer offered by the UI.
         for grant in self._packages(
             db, row.tenant_id, row.subject_id, row.service_code, row.quota_code, now, lock=True
         ):
@@ -567,7 +606,26 @@ class QuotaKit:
                 db.add(PackageCharge(token_id=row.id, grant_id=grant.id, units=take))
                 left -= take
         _require(left == 0 or allow_overdraft, "quota_exhausted", "Quota exhausted")
-        usage.used_units += main + left
+        if left:
+            if sources:
+                assignment, _, _, _, counter = sources[0]
+                counter.used_units += left
+                allocations.append((assignment, counter, left))
+            else:
+                usage.used_units += left
+        for assignment, counter, take in allocations:
+            if assignment is not None:
+                db.add(
+                    LevelPackageCharge(
+                        token_id=row.id,
+                        assignment_id=assignment.id,
+                        units=take,
+                        legacy_usage_id=counter.id if isinstance(counter, Usage) else None,
+                        package_usage_id=counter.id
+                        if isinstance(counter, LevelPackageUsage)
+                        else None,
+                    )
+                )
 
     def put_limit(
         self,
@@ -652,7 +710,38 @@ class QuotaKit:
             _require(
                 self._level(db, tenant, level) is not None, "unknown_level", "Level not found", 404
             )
-            active = self._assignment(db, tenant, subject, effective_at, lock=True, required=False)
+            state = self._lock_subject(db, tenant, subject)
+            state.revision += 1
+            active = db.scalar(
+                select(Assignment)
+                .where(
+                    Assignment.tenant_id == tenant,
+                    Assignment.subject_id == subject,
+                    Assignment.package_code == "membership",
+                    Assignment.revoked_at.is_(None),
+                    Assignment.effective_at <= effective_at,
+                    Assignment.expires_at.is_(None) | (Assignment.expires_at > effective_at),
+                )
+                .order_by(Assignment.id.desc())
+                .limit(1)
+                .with_for_update()
+            )
+            previous = db.scalar(
+                select(Assignment)
+                .where(
+                    Assignment.tenant_id == tenant,
+                    Assignment.subject_id == subject,
+                    Assignment.package_code == "membership",
+                )
+                .order_by(Assignment.id.desc())
+                .limit(1)
+            )
+            existing = self._user_packages(db, tenant, subject)
+            order = (
+                previous.sort_order
+                if previous and previous.revoked_at is None
+                else max((a.sort_order for a in existing), default=-1) + 1
+            )
             if active and not renew_term:
                 term_start = active.term_start or active.effective_at
                 term_end = active.term_end or active.expires_at
@@ -676,6 +765,8 @@ class QuotaKit:
                     expires_at=expires_at,
                     term_start=term_start,
                     term_end=term_end,
+                    package_code="membership",
+                    sort_order=order,
                 )
             )
 
@@ -686,12 +777,29 @@ class QuotaKit:
         )
         now = utc_now()
         with self.sessions.begin() as db:
-            active = self._assignment(db, tenant, subject, now, lock=True, required=False)
-            if active is None:
+            state = self._lock_subject(db, tenant, subject)
+            active = list(
+                db.scalars(
+                    select(Assignment)
+                    .where(
+                        Assignment.tenant_id == tenant,
+                        Assignment.subject_id == subject,
+                        Assignment.revoked_at.is_(None),
+                        Assignment.expires_at.is_(None) | (Assignment.expires_at > now),
+                    )
+                    .order_by(Assignment.id)
+                    .with_for_update()
+                )
+            )
+            if not active:
                 return False
-            active.expires_at = now
-            if active.term_end is None or active.term_end > now:
-                active.term_end = now
+            for row in active:
+                row.revoked_at = now
+                if row.effective_at <= now:
+                    row.expires_at = now
+                    if row.term_end is None or row.term_end > now:
+                        row.term_end = now
+            state.revision += 1
             return True
 
     def membership(self, tenant: str, subject: int) -> dict | None:
@@ -730,43 +838,44 @@ class QuotaKit:
         lock: bool = False,
         required: bool = True,
     ) -> Assignment | None:
-        query = (
-            select(Assignment)
-            .where(
-                Assignment.tenant_id == tenant,
-                Assignment.subject_id == subject,
-                Assignment.effective_at <= now,
-                (Assignment.expires_at.is_(None) | (Assignment.expires_at > now)),
-            )
-            .order_by(Assignment.effective_at.desc(), Assignment.id.desc())
-            .limit(1)
-        )
-        if lock:
-            query = query.with_for_update()
-        assignment = db.scalar(query)
+        assignments = QuotaKit._assignments(db, tenant, subject, now, lock=lock)
+        assignment = assignments[0] if assignments else None
         if required:
             _require(assignment is not None, "no_level", "No active Level")
         return assignment
 
     @staticmethod
-    def _policy(db: Session, tenant: str, subject: int, service_code: str, now: datetime):
+    def _policy(
+        db: Session,
+        tenant: str,
+        subject: int,
+        service_code: str,
+        now: datetime,
+        *,
+        lock: bool = True,
+    ):
+        if lock:
+            QuotaKit._lock_subject(db, tenant, subject)
         service = db.scalar(
             select(Service).where(Service.tenant_id == tenant, Service.service_code == service_code)
         )
         _require(service is not None, "unknown_service", "Service not found", 404)
         quota = QuotaKit._quota(db, tenant, service.quota_code)
         _require(quota is not None, "no_quota", "Service has no direct Quota")
-        assignment = QuotaKit._assignment(db, tenant, subject, now)
-        limit = db.scalar(
-            select(Limit).where(
-                Limit.tenant_id == tenant,
-                Limit.level_code == assignment.level_code,
-                Limit.quota_code == quota.quota_code,
+        assignments = QuotaKit._assignments(db, tenant, subject, now, lock=lock)
+        _require(bool(assignments), "no_level", "No active Level")
+        for assignment in assignments:
+            limit = db.scalar(
+                select(Limit).where(
+                    Limit.tenant_id == tenant,
+                    Limit.level_code == assignment.level_code,
+                    Limit.quota_code == quota.quota_code,
+                )
             )
-        )
-        _require(limit is not None, "no_limit", "Level has no Limit for Service")
-        start, end = _period(now, limit.period_kind, limit.timezone, assignment)
-        return quota, limit, start, end
+            if limit is not None:
+                start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+                return quota, limit, start, end
+        raise QuotaError("no_limit", "No user Level package supports this Service")
 
     @staticmethod
     def _usage(
@@ -922,6 +1031,19 @@ class QuotaKit:
                 quota.metering_mode,
                 limit.limit_value,
             )
+            for order, (assignment, value, a_start, a_end, _) in enumerate(
+                self._level_sources(db, issuer.tenant_id, subject, quota.quota_code, now, lock=True)
+            ):
+                db.add(
+                    LevelPackageAdmission(
+                        token_id=row.id,
+                        assignment_id=assignment.id,
+                        sort_order=order,
+                        period_start=a_start,
+                        period_end=a_end,
+                        limit_value=value,
+                    )
+                )
             return {
                 "token": token,
                 "status": row.status,
@@ -1386,6 +1508,7 @@ class QuotaKit:
                 return {"status": "settled", "consumed_units": consumed_units, "idempotent": True}
             _require(row.status == "admitted", "not_admitted", "Token was not admitted")
             row.provider_client_id = provider.client_id
+            self._lock_subject(db, row.tenant_id, row.subject_id)
             usage = self._usage(
                 db, row.tenant_id, row.subject_id, row.quota_code, row.period_start, row.period_end
             )
@@ -1425,6 +1548,7 @@ class QuotaKit:
                     )
                 ).all():
                     item.status = "expired"
+            self._lock_subject(db, row.tenant_id, row.subject_id)
             usage = self._usage(
                 db, row.tenant_id, subject, row.quota_code, row.period_start, row.period_end
             )
@@ -1440,7 +1564,20 @@ class QuotaKit:
                 )
                 grant.used_units -= charge.units
                 auxiliary += charge.units
-            usage.used_units -= row.consumed_units - auxiliary
+            level_charges = list(
+                db.scalars(
+                    select(LevelPackageCharge)
+                    .where(LevelPackageCharge.token_id == row.id)
+                    .order_by(LevelPackageCharge.id)
+                )
+            )
+            for charge in level_charges:
+                model = Usage if charge.legacy_usage_id is not None else LevelPackageUsage
+                counter_id = charge.legacy_usage_id or charge.package_usage_id
+                counter = db.scalar(select(model).where(model.id == counter_id).with_for_update())
+                counter.used_units -= charge.units
+            legacy = row.consumed_units - auxiliary - sum(c.units for c in level_charges)
+            usage.used_units -= legacy
             row.status = "refunded"
             self._ledger(db, row, "refund", -row.consumed_units, now)
             return {"status": "refunded", "idempotent": False}
@@ -1479,27 +1616,22 @@ class QuotaKit:
         now = utc_now()
         with self.sessions() as db:
             quota, limit, start, end = self._policy(
-                db, caller.tenant_id, subject, caller.service_code, now
+                db, caller.tenant_id, subject, caller.service_code, now, lock=False
             )
-            usage = db.scalar(
-                select(Usage).where(
-                    Usage.tenant_id == caller.tenant_id,
-                    Usage.subject_id == subject,
-                    Usage.quota_code == quota.quota_code,
-                    Usage.period_start == start,
-                )
-            )
-            used = usage.used_units if usage else 0
-            remaining = (
-                None if limit.limit_mode == "unlimited" else max(0, limit.limit_value - used)
-            )
+            sources = self._level_sources(db, caller.tenant_id, subject, quota.quota_code, now)
+            values = [
+                None if value is None else max(0, value - (counter.used_units if counter else 0))
+                for _, value, _, _, counter in sources
+            ]
             packages = self._packages(
                 db, caller.tenant_id, subject, caller.service_code, quota.quota_code, now
             )
             auxiliary = sum(max(0, g.total_units - g.used_units) for g in packages)
             return {
-                "main_remaining": remaining,
-                "auxiliary_remaining": auxiliary,
+                "main_remaining": values[0],
+                "auxiliary_remaining": None
+                if any(v is None for v in values[1:])
+                else sum(values[1:]) + auxiliary,
                 "packages": [
                     {
                         "grant_code": g.grant_code,
@@ -1508,11 +1640,30 @@ class QuotaKit:
                     }
                     for g in packages
                 ],
+                "level_packages": [
+                    {
+                        "id": a.id,
+                        "level_code": a.level_code,
+                        "sort_order": a.sort_order,
+                        "limit": value,
+                        "used": counter.used_units if counter else 0,
+                        "remaining": remaining,
+                        "period_start": a_start.isoformat() + "Z",
+                        "period_end": a_end.isoformat() + "Z",
+                    }
+                    for (a, value, a_start, a_end, counter), remaining in zip(
+                        sources, values, strict=True
+                    )
+                ],
                 "quota_code": quota.quota_code,
                 "unit": quota.unit_code,
-                "limit": limit.limit_value,
-                "used": used,
-                "remaining": None if remaining is None else remaining + auxiliary,
+                "limit": None
+                if any(value is None for _, value, _, _, _ in sources)
+                else sum(value for _, value, _, _, _ in sources),
+                "used": sum(
+                    counter.used_units if counter else 0 for _, _, _, _, counter in sources
+                ),
+                "remaining": None if any(v is None for v in values) else sum(values) + auxiliary,
                 "period_end": end.isoformat() + "Z",
             }
 
@@ -1533,11 +1684,20 @@ class QuotaKit:
                 return {"subject_id": subject, "member": None, "quotas": []}
             limits = db.scalars(
                 select(Limit)
-                .where(Limit.tenant_id == tenant, Limit.level_code == assignment.level_code)
+                .where(
+                    Limit.tenant_id == tenant,
+                    Limit.level_code.in_(
+                        [a.level_code for a in self._assignments(db, tenant, subject, now)]
+                    ),
+                )
                 .order_by(Limit.quota_code)
             ).all()
             quotas = []
+            seen = set()
             for limit in limits:
+                if limit.quota_code in seen:
+                    continue
+                seen.add(limit.quota_code)
                 quota = self._quota(db, tenant, limit.quota_code)
                 services = db.scalars(
                     select(Service.service_code)
@@ -1555,25 +1715,29 @@ class QuotaKit:
                     "timezone": limit.timezone,
                 }
                 try:
-                    start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+                    sources = self._level_sources(db, tenant, subject, limit.quota_code, now)
+                    _, _, start, end, _ = sources[0]
                 except QuotaError as exc:
                     quotas.append({**item, "error": exc.code})
                     continue
-                usage = db.scalar(
-                    select(Usage).where(
-                        Usage.tenant_id == tenant,
-                        Usage.subject_id == subject,
-                        Usage.quota_code == limit.quota_code,
-                        Usage.period_start == start,
-                    )
-                )
-                used = usage.used_units if usage else 0
+                used = sum(counter.used_units if counter else 0 for _, _, _, _, counter in sources)
                 remaining = (
-                    None if limit.limit_mode == "unlimited" else max(0, limit.limit_value - used)
+                    None
+                    if any(value is None for _, value, _, _, _ in sources)
+                    else sum(
+                        max(0, value - (counter.used_units if counter else 0))
+                        for _, value, _, _, counter in sources
+                    )
                 )
                 quotas.append(
                     {
                         **item,
+                        "limit": None
+                        if any(value is None for _, value, _, _, _ in sources)
+                        else sum(value for _, value, _, _, _ in sources),
+                        "limit_mode": "unlimited"
+                        if any(value is None for _, value, _, _, _ in sources)
+                        else "finite",
                         "used": used,
                         "remaining": remaining,
                         "service_balances": [
@@ -1637,7 +1801,17 @@ class QuotaKit:
                 .join(PackageCharge, PackageCharge.grant_id == PackageGrant.id)
                 .where(PackageCharge.token_id == row.id)
             ).all()
+            level_charges = db.execute(
+                select(Assignment.id, Assignment.level_code, LevelPackageCharge.units)
+                .join(LevelPackageCharge, LevelPackageCharge.assignment_id == Assignment.id)
+                .where(LevelPackageCharge.token_id == row.id)
+                .order_by(LevelPackageCharge.id)
+            ).all()
             return {
+                "level_package_charges": [
+                    {"id": c.id, "level_code": c.level_code, "units": c.units}
+                    for c in level_charges
+                ],
                 "main_consumed_units": (row.consumed_units or 0) - sum(c.units for c in charges),
                 "package_charges": [
                     {"grant_code": c.grant_code, "units": c.units} for c in charges

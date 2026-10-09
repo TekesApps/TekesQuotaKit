@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.9.1 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.10.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -286,6 +286,19 @@ Before starting code with package support, run `tekes-quota-kit init-schema` or 
 `tq_package_charges`; no existing columns or counters change. Back up first. All service and
 admin instances must run the new code before issuing grants: older service processes do not
 see auxiliary balances and will reject users whose main balance is exhausted.
+
+### Upgrading for ordered Level packages (0.10.0)
+
+Back up all `tq_` tables and stop service/maintenance writers. From v0.9.x, apply
+`migrations/add_ordered_level_packages_mysql.sql` once **before** starting v0.10.0. It extends
+`tq_assignments` with package identity, priority and revocation, and creates four accounting
+and editor-revision tables. Existing assignments, usage, tokens and Ledger records remain
+intact; the original membership counter is retained. `init-schema` alone does not add columns
+to an existing table, so it cannot replace this migration. Fresh installs use the complete DDL.
+
+Do not mix old/new service processes while issuing ordered packages; old versions cannot see
+those balances. Keep legacy v0.9 top-up history/tables intact. Rollback to v0.9.x is safe before
+new Level packages are issued; after issuance, stop writers and assess accounting first.
 
 ### Backups
 
