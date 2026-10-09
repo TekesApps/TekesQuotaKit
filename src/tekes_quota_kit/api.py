@@ -44,6 +44,19 @@ class LimitConfig(BaseModel):
     timezone: str = "Asia/Shanghai"
 
 
+class PackageConfig(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    service_code: str = Field(min_length=1, max_length=64)
+    units: int = Field(gt=0, le=9223372036854775807, strict=True)
+
+
+class PackageGrantConfig(BaseModel):
+    package_code: str = Field(min_length=1, max_length=64)
+    effective_at: datetime | None = None
+    expires_at: datetime | None = None
+    total_units: int | None = Field(default=None, gt=0, le=9223372036854775807, strict=True)
+
+
 class MemberRequest(BaseModel):
     level_code: str = Field(min_length=1, max_length=64)
     expires_at: datetime | None = None
@@ -212,6 +225,46 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             payload.timezone,
         )
         return {"level_code": level_code, "quota_code": quota_code}
+
+    @app.put("/v1/admin/tenants/{tenant}/packages/{code}", dependencies=[Depends(admin)])
+    def put_package(tenant: str, code: str, payload: PackageConfig) -> dict:
+        if not 0 < len(code) <= 64:
+            raise HTTPException(422, "Package code must be 1 to 64 characters")
+        kit.put_package(tenant, code, payload.name, payload.service_code, payload.units)
+        return {"package_code": code}
+
+    @app.delete("/v1/admin/tenants/{tenant}/packages/{code}", dependencies=[Depends(admin)])
+    def delete_package(tenant: str, code: str) -> dict:
+        kit.delete_package(tenant, code)
+        return {"deleted": True}
+
+    @app.put(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/packages/{code}",
+        dependencies=[Depends(admin)],
+    )
+    def put_package_grant(
+        tenant: str, subject_id: int, code: str, payload: PackageGrantConfig
+    ) -> dict:
+        if not 0 < len(code) <= 64:
+            raise HTTPException(422, "Grant code must be 1 to 64 characters")
+        kit.put_package_grant(
+            tenant,
+            subject_id,
+            code,
+            payload.package_code,
+            _utc_naive(payload.effective_at),
+            _utc_naive(payload.expires_at),
+            payload.total_units,
+        )
+        return {"grant_code": code}
+
+    @app.delete(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/packages/{code}",
+        dependencies=[Depends(admin)],
+    )
+    def revoke_package_grant(tenant: str, subject_id: int, code: str) -> dict:
+        kit.revoke_package_grant(tenant, subject_id, code)
+        return {"revoked": True}
 
     @app.put(
         "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level", dependencies=[Depends(admin)]

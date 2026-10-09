@@ -28,6 +28,9 @@ from .models import (
     Ledger,
     Level,
     Limit,
+    Package,
+    PackageCharge,
+    PackageGrant,
     Quota,
     Service,
     ServiceMember,
@@ -45,6 +48,9 @@ TABLES = {
         Quota,
         Limit,
         Assignment,
+        Package,
+        PackageGrant,
+        PackageCharge,
         Service,
         ServiceMember,
         Usage,
@@ -128,6 +134,8 @@ SUBJECT_ID_RULE = (
     "One positive integer per person, chosen by the business system; member sync and every "
     "Service request must send the same ID for the same person"
 )
+
+
 def _user_id_rule(definition: str) -> list[str]:
     return [
         "## User ID rule (read first)",
@@ -260,7 +268,7 @@ def _client_guide(
         "",
         "Kit only admits a `subject_id` that holds an active Level in this business system, and",
         "matches it to member registration by the ID rule above.",
-        "Any other user is rejected with HTTP 409 `no_level`; treat that as \"not a member\".",
+        'Any other user is rejected with HTTP 409 `no_level`; treat that as "not a member".',
         "This client cannot add members. The business system keeps the member list in Kit",
         "through its separate member-sync client (role `membership`).",
         "",
@@ -479,7 +487,7 @@ def _membership_guide(
         ),
         "```",
         "",
-        "The response is `{\"total\": n, \"failed\": k, \"results\": [...]}`, one result per",
+        'The response is `{"total": n, "failed": k, "results": [...]}`, one result per',
         "item with `ok`, and `code` and `message` when it failed. Items are applied one by one,",
         "so a failure does not undo the others. Fix and resend only the failed items.",
         "",
@@ -706,8 +714,8 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             filters.append(getattr(model, key) == value)
         with kit.sessions() as db:
             query = select(model)
-            if model is TokenItem:
-                query = query.join(Token, Token.id == TokenItem.token_id).where(
+            if model in {TokenItem, PackageCharge}:
+                query = query.join(Token, Token.id == model.token_id).where(
                     Token.tenant_id == tenant
                 )
             else:
@@ -754,9 +762,8 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         if service is None:
             levels = _levels(kit, config.tenant_id)
             return _download(
-                client_id, _membership_guide(
-                    client_id, key, config.tenant_id, base, levels, definition
-                ),
+                client_id,
+                _membership_guide(client_id, key, config.tenant_id, base, levels, definition),
             )
         with kit.sessions() as db:
             quota = db.scalar(
@@ -781,9 +788,8 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                 )
             ]
         return _download(
-            client_id, _client_guide(
-                client_id, key, config, service, metering_mode, members, definition
-            ),
+            client_id,
+            _client_guide(client_id, key, config, service, metering_mode, members, definition),
         )
 
     return router

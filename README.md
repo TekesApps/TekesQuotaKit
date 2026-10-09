@@ -145,6 +145,21 @@ The console works at `/admin` or behind a reverse proxy path prefix such as `/us
 
 Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKES_QUOTA_TOKEN_SECRET` from the environment; `serve` also needs `TEKES_QUOTA_ADMIN_KEY`.
 
+## Auxiliary quota packages
+
+A user keeps their main Level and can hold multiple independent top-ups. Each package template
+supports one directly charged Service with a positive integer quantity; issue several packages
+for different Services. Packages supplement quantity, not permissions: an active Level with a
+Limit for that Service's Quota is still required. Templates and user packages are managed on
+**用户等级** in the admin console.
+
+Consumption uses the main period allowance first, then valid, unrevoked packages supporting
+that exact Service and Quota, earliest expiry first (no expiry last, then grant ID). One charge
+can split across sources. Each grant has a separate issuance code, quantity and validity window;
+it never resets with the main period. Changing/deleting a template leaves issued snapshots intact.
+Deleting a user package revokes it and retains history; refunds restore original sources and do
+not reactivate expired/revoked packages. See [API details](docs/api.md#auxiliary-packages).
+
 ## Known limitations
 
 - Alpha, pre-1.0. The API and schema may change.

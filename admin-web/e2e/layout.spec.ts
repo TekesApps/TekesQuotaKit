@@ -209,3 +209,52 @@ test('looks up one user\'s usage and drills from a Level to its 等级额度', a
   await page.locator('.search-bar').getByRole('button', { name: '清除' }).click();
   await expect(search('Level')).toHaveValue('');
 });
+
+test('manages auxiliary package templates and multiple user bindings', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: '用户等级' }).click();
+  await page.getByRole('button', { name: '创建额度包', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('包代码').fill('e2e-extra');
+  await dialog.getByLabel('包名称').fill('临时测量包');
+  await dialog.getByLabel('支持的服务').click();
+  await page.locator('.ant-select-item-option').filter({ hasText: 'session' }).click();
+  await dialog.getByLabel('额度数量').fill('3');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const templates = page.locator('.panel').filter({ has: page.getByRole('heading', { name: '辅助额度包模板', exact: true }) });
+  await expect(templates.getByRole('cell', { name: '临时测量包', exact: true })).toBeVisible();
+  for (const code of ['order-a', 'order-b']) {
+    await page.getByRole('button', { name: '给用户发放额度包', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByLabel('用户 ID').fill('42');
+    await dialog.getByLabel('发放编号').fill(code);
+    await dialog.getByLabel('额度包模板').click();
+    await page.locator('.ant-select-item-option').filter({ hasText: 'e2e-extra' }).click();
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  }
+  const bindings = page.locator('.panel').filter({ has: page.getByRole('heading', { name: '用户辅助额度包', exact: true }) });
+  const first = bindings.getByRole('row').filter({ has: page.getByRole('cell', { name: 'order-a', exact: true }) });
+  await first.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('此包总额度').fill('5');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(first.getByRole('cell', { name: '5', exact: true })).toHaveCount(2);
+  page.once('dialog', d => d.accept());
+  await first.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '撤销', exact: true }).click();
+  await expect(first.getByRole('cell', { name: /^\d{4}/ })).toHaveCount(2); // start and revocation
+  const second = bindings.getByRole('row').filter({ has: page.getByRole('cell', { name: 'order-b', exact: true }) });
+  await expect(second).toBeVisible();
+  page.once('dialog', d => d.accept());
+  await templates.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '删除', exact: true }).click();
+  await expect(templates.getByRole('cell', { name: '临时测量包', exact: true })).toHaveCount(0);
+  await expect(second).toBeVisible();
+});

@@ -8,6 +8,18 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-09
+
+### Added
+
+- Stack multiple service-specific auxiliary quota packages on one user without changing their
+  Level. Main quota is charged first, followed by eligible packages in expiry order; a durable
+  charge can split across sources atomically. Refunds restore the original sources.
+- Package template CRUD and user-package grant/update/revoke management in the user Level page,
+  with validity windows, issuance identifiers, template snapshots, and retained usage history.
+- Main/auxiliary service balances and token allocation details; additive MySQL migration
+  `migrations/add_packages_mysql.sql` (three new tables, no changes to existing tables).
+
 ## [0.8.0] - 2026-10-08
 
 ### Added
