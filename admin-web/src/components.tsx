@@ -32,7 +32,7 @@ export function Table({ columns, data, loading, error }: { columns: Column[]; da
 }
 
 type TablePage = { columns: string[]; total: number; offset: number; rows: Row[] };
-export const PAGE_SIZE = 50;
+export const PAGE_SIZE = 10;
 
 /** Reads one tq_ table for a tenant through the admin browse endpoint, newest first. */
 export function useTable(table: string, tenant: string, revision: number, offset = 0, limit = PAGE_SIZE, filters: Row = {}) {

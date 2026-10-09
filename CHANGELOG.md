@@ -8,6 +8,15 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-09
+
+### Changed
+
+- Scale admin and login typography to 80% of its former size at normal browser zoom, including
+  native fields and antd controls/menus. Control heights and layout dimensions remain stable.
+- Show 10 records per console page and add direct navigation to auxiliary package template
+  and user-package management above the main user Level table.
+
 ## [0.9.0] - 2026-10-09
 
 ### Added

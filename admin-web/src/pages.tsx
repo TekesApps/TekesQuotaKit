@@ -23,6 +23,7 @@ function column(key: string, extra: Partial<Column> = {}): Column {
 
 type Spec = {
   searchKeys?: string[];
+  id?: string;
   table: string; title: string; description: ReactNode; addLabel: string;
   columns: Column[]; fields: Field[]; defaults?: Row; editable?: boolean;
   save: (tenant: string, data: Row) => Promise<unknown>;
@@ -45,7 +46,7 @@ function ConfigPage({ spec, tenant, revision, onChanged, focus, onNavigate, sect
     ...(spec.remove ? [{ label: spec.remove.label, danger: true, action: () => void remove(row) }] : []),
   ]} /> };
   const columns = spec.editable || spec.remove ? [...spec.columns, actions] : spec.columns;
-  return <section className="panel">
+  return <section id={spec.id} className="panel">
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}</p></div><button onClick={() => setCreating(true)}>{spec.addLabel}</button></div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {spec.searchKeys && <SearchBar keys={spec.searchKeys} labels={columnNames} value={filters} onSearch={search} />}
@@ -180,9 +181,14 @@ export function AssignmentsPage(props: PageProps) {
   const services = useCodes('tq_services', 'service_code', props.tenant, props.revision);
   const packages = useCodes('tq_packages', 'package_code', props.tenant, props.revision);
   return <>
+    <div className="toolbar package-navigation" aria-label="用户额度包管理入口">
+      <span className="muted">用户额度包管理</span>
+      <button className="secondary" onClick={() => document.getElementById('auxiliary-package-templates')?.scrollIntoView({ block: 'start' })}>管理额度包模板</button>
+      <button onClick={() => document.getElementById('user-auxiliary-packages')?.scrollIntoView({ block: 'start' })}>管理用户辅助额度包</button>
+    </div>
     <MainAssignmentPage {...props} />
     <ConfigPage {...props} focus={undefined} spec={{
-      table: 'tq_packages', title: '辅助额度包模板', addLabel: '创建额度包', editable: true,
+      id: 'auxiliary-package-templates', table: 'tq_packages', title: '辅助额度包模板', addLabel: '创建额度包', editable: true,
       searchKeys: ['package_code', 'service_code'],
       description: '每个包补充一个指定服务的额度。修改或删除模板不影响已发放的用户包；多个包可支持同一服务。',
       columns: ['package_code', 'name', 'service_code', 'units'].map(k => column(k)),
@@ -199,7 +205,7 @@ export function AssignmentsPage(props: PageProps) {
         run: (t, r) => api(`/tenants/${enc(t)}/packages/${enc(text(r.package_code))}`, 'DELETE') },
     }} />
     <ConfigPage {...props} focus={props.focus?.subject_id ? { subject_id: props.focus.subject_id } : undefined} spec={{
-      table: 'tq_package_grants', title: '用户辅助额度包', addLabel: '给用户发放额度包', editable: true,
+      id: 'user-auxiliary-packages', table: 'tq_package_grants', title: '用户辅助额度包', addLabel: '给用户发放额度包', editable: true,
       searchKeys: ['subject_id', 'grant_code', 'package_code', 'service_code'],
       description: '主包优先，副包按最早到期顺序扣减。发放编号标识一份独立包，同一用户可重复购买同一模板；每次使用不同编号。撤销保留历史且不能恢复。',
       columns: [

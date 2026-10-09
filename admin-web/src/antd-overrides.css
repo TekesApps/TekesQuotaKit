@@ -87,3 +87,9 @@
 .subject-usage p {
   margin: 0 0 10px;
 }
+
+/* Fractional text sizes must not change the shared editor control height. */
+.admin-shell label > .ant-select {
+  height: 38px;
+  min-height: 38px;
+}
