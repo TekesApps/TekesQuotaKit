@@ -108,7 +108,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | `no_quota` | 409 | Service has no direct Quota (a child-only Service cannot be redeemed, issued, or have its balance read). |
 | `no_limit` | 409 | Subject's Level has no Limit for the Service's Quota. |
 | `missing_term_end` | 409 | Limit uses `level_term` but the subject's Assignment has no expiry. |
-| `quota_exhausted` | 409 | Charging would exceed the Limit for the current period. |
+| `quota_exhausted` | 409 | Charging would exceed available main and eligible auxiliary quota. |
 | `already_redeemed` | 409 | Instant redeem repeated with the same `request_key`. Details: `token`, `status`. |
 | `duration_conflict` | 409 | Durable redeem retried with the same `request_key` but a different `duration_seconds`. |
 | `empty_composite` | 409 | Composite Service has no members at redeem time. |
@@ -641,3 +641,53 @@ Setup shared by all flows (admin key):
 5. Perform the work and measure it.
 6. Provider: `POST /v1/token/settle` with the token and `consumed_units`.
 7. Provider, periodically: `GET /v1/tokens/unsettled` to find admitted tokens that were never settled.
+
+
+## Auxiliary packages
+
+All management endpoints below use admin authentication and are tenant scoped:
+
+| Method | Path after `/v1/admin/tenants/{tenant}` | Body / behavior |
+| --- | --- | --- |
+| PUT | `/packages/{package_code}` | `name`, `service_code`, positive integer `units`; create/update a template |
+| DELETE | `/packages/{package_code}` | Delete template; issued user snapshots remain valid |
+| PUT | `/subjects/{subject_id}/packages/{grant_code}` | `package_code`, optional `total_units`, `effective_at`, `expires_at`; create/update a user package |
+| DELETE | `/subjects/{subject_id}/packages/{grant_code}` | Revoke immediately; preserve history; idempotent |
+
+List/read templates and user packages with `/v1/admin/tables/tq_packages` and
+`/v1/admin/tables/tq_package_grants`, using `tenant` and optional exact-match filters such as
+`subject_id`, `package_code`, `grant_code`, or `service_code`. `tq_package_charges` exposes the
+immutable allocation records, tenant scoped through tokens (`token_id`, `grant_id`, `units`).
+
+Example: template `extra-visits` supports `measurement_session` with `units: 3`. Assign it to
+user 42 with `grant_code=order-123` and `expires_at=2026-10-16T00:00:00+08:00`. Another purchase
+gets a different grant code. Repeating the same code edits that same grant, never adds a second
+copy. Existing grants cannot change template or reopen after revocation. On update, omitted
+`total_units` and `effective_at` preserve existing values; omitted/null `expires_at` removes
+expiry. Total quantity cannot be lower than already consumed quantity. Package and grant codes
+are 1–64 characters. Dates with no offset are interpreted as UTC.
+
+Templates support one directly charged Service each. User packages snapshot Service, Quota and
+quantity on issue; later template changes do not alter them. Packages do not grant permission:
+normal membership and Limit authorization still apply. A parent durable Service consumes its
+own packages once on redeem; child `use` never charges again. Remapping a Service to another
+Quota makes old grants ineligible for that Service.
+
+Main quota is consumed first; packages cover the shortfall, in earliest-expiry order, permanent
+packages last, ID ascending for ties. Finite per-use redemption checks the full quantity and
+allocates atomically; insufficient combined quota rolls back everything. `balance.remaining`
+is combined availability for the caller's exact Service; `used` and `limit` describe main quota.
+New fields: `main_remaining`, `auxiliary_remaining`, and `packages` (grant code, remaining and
+expiry). The admin user usage summary keeps main quota amounts and adds `service_balances`
+with service-specific auxiliary remaining quantities; these cannot be merged across Services.
+Token status adds `main_consumed_units` and `package_charges` for the original consumption;
+these remain historical after refund.
+
+Refunds restore the original main period and package allocations exactly once, even after
+expiry/revocation; they never extend package validity. Existing per-use refund restrictions
+still apply. Metered issuance does not reserve quota. Metered settlement uses current eligible
+packages and the original main-period/Limit snapshot, retaining the existing overage policy:
+if actual settlement exceeds all available amounts, the excess is booked to main usage rather
+than rejecting a completed operation. No package can exceed its own quantity. An admitted
+metered token remains settleable after membership expiry or package revocation; these changes
+block future admission, not accounting for an already admitted operation.

@@ -287,3 +287,58 @@ class AdminLoginAttempt(Base):
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     attempted_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     __table_args__ = (Index("ix_tq_admin_login_attempt", "username", "attempted_at"),)
+
+
+class Package(Base):
+    """Reusable service-specific top-up template; grants snapshot its contents."""
+
+    __tablename__ = "tq_packages"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "package_code", name="uq_tq_package"),
+        ForeignKeyConstraint(
+            ["tenant_id", "service_code"], ["tq_services.tenant_id", "tq_services.service_code"]
+        ),
+    )
+
+
+class PackageGrant(Base):
+    """One independently identifiable user package, retained after revocation."""
+
+    __tablename__ = "tq_package_grants"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    grant_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    total_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    used_units: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    effective_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "subject_id", "grant_code", name="uq_tq_package_grant"),
+        Index("ix_tq_package_subject", "tenant_id", "subject_id", "service_code"),
+    )
+
+
+class PackageCharge(Base):
+    """Immutable allocation of a token's charge to an auxiliary grant."""
+
+    __tablename__ = "tq_package_charges"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    token_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    grant_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("token_id", "grant_id", name="uq_tq_package_charge"),
+        ForeignKeyConstraint(["token_id"], ["tq_tokens.id"]),
+        ForeignKeyConstraint(["grant_id"], ["tq_package_grants.id"]),
+    )

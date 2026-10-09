@@ -138,3 +138,43 @@ def test_mysql_composite_slots_and_refund_guard():
             )
             == 3
         )
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEKES_QUOTA_TEST_DATABASE_URL"), reason="No disposable MySQL URL"
+)
+def test_mysql_packages_concurrent_issue_charge_and_refund():
+    url = os.environ["TEKES_QUOTA_TEST_DATABASE_URL"]
+    assert make_url(url).database.startswith("tekes_quota_test_")
+    kit = QuotaKit(url, "test-token-secret-with-at-least-32-characters")
+    Base.metadata.create_all(kit.engine)
+    tenant = "package-mysql-test"
+    kit.put_quota(tenant, "visits", "use", "per_use")
+    kit.put_level(tenant, "regular")
+    kit.put_service(tenant, "visit", "visits")
+    kit.put_limit(tenant, "regular", "visits", "finite", 0, "month", "Asia/Shanghai")
+    kit.assign(tenant, 42, "regular")
+    key = "mysql-package-client-key-with-at-least-32-characters"
+    kit.put_client("mysql-package-client", key, tenant, "visit", "consumer")
+    caller = kit.client(key, "provider")
+    kit.put_package(tenant, "extra", "Extra", "visit", 1)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: kit.put_package_grant(tenant, 42, "order", "extra"), range(4)))
+    assert kit.balance(caller, 42)["remaining"] == 1
+
+    def consume(n):
+        try:
+            return kit.redeem(caller, 42, "visit", f"request-{n}")["token"]
+        except QuotaError as exc:
+            assert exc.code == "quota_exhausted"
+            return None
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        tokens = list(pool.map(consume, range(4)))
+    assert sum(t is not None for t in tokens) == 1
+    assert kit.balance(caller, 42)["used"] == 0
+    assert kit.balance(caller, 42)["remaining"] == 0
+    token = next(t for t in tokens if t)
+    kit.refund(token, caller, 42)
+    assert kit.refund(token, caller, 42)["idempotent"]
+    assert kit.balance(caller, 42)["remaining"] == 1

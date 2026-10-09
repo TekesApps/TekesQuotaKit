@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.2.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.9.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -52,7 +52,11 @@ If the secret changes, tokens already handed out still work by value (they are l
 
 ## Schema setup
 
-TekesQuotaKit creates and uses only tables prefixed `tq_` (11 tables: `tq_clients`, `tq_levels`, `tq_quotas`, `tq_limits`, `tq_assignments`, `tq_services`, `tq_service_members`, `tq_usage`, `tq_tokens`, `tq_token_items`, `tq_ledger`). It never creates a database or switches schemas, so it can live inside an existing application schema or in a dedicated one. The database user needs DML on the `tq_` tables, plus DDL rights while you create them.
+TekesQuotaKit creates and uses only tables prefixed `tq_`, including configuration, usage,
+package grants/allocations, and admin account/session tables. The authoritative complete list
+is `migrations/create_tables_mysql.sql`. It never creates a database or switches schemas, so
+it can live inside an existing application schema or in a dedicated one. The database user
+needs DML on these tables and DDL rights while creating them.
 
 ### Fresh install
 
@@ -275,6 +279,14 @@ Or cron (as the service user):
 
 For `reported_usage` Quotas, `POST /v1/token` only admits an operation; usage is counted when a provider settles it. Providers should periodically call `GET /v1/tokens/unsettled` with their client key. It lists `admitted` tokens for that client's tenant and Service as `token_hash`, `subject_id`, and `admitted_at`. Match `token_hash` against the SHA-256 of tokens your backend recorded and settle or investigate any stragglers. Unsettled tokens never count against the Limit.
 
+### Upgrading for auxiliary packages
+
+Before starting code with package support, run `tekes-quota-kit init-schema` or apply
+`migrations/add_packages_mysql.sql` once. It adds `tq_packages`, `tq_package_grants`, and
+`tq_package_charges`; no existing columns or counters change. Back up first. All service and
+admin instances must run the new code before issuing grants: older service processes do not
+see auxiliary balances and will reject users whose main balance is exhausted.
+
 ### Backups
 
 All state is in the `tq_` tables (15 as of 0.4.0, including the console accounts and the business system registry). Do not hard-code the table list: new versions add tables, and a stale list silently drops them from the backup.
@@ -294,7 +306,7 @@ mysqldump --single-transaction --default-character-set=utf8mb4 your_app $tables 
 
 After a restore, check that every table is back: `SHOW TABLES LIKE 'tq\_%'` should list the same tables as `migrations/create_tables_mysql.sql`. Console sessions and login attempts may be dropped from a restore without harm; operators simply sign in again.
 
-`tq_ledger` records every `consume` and `refund` with its unit delta and is the audit trail for `tq_usage`. Always take a backup before applying a migration. Back up the token secret separately in your secret manager; a restored database is only fully usable with the same secret.
+`tq_ledger` records every `consume` and `refund` with its total unit delta. `tq_package_charges` records auxiliary allocations, so main usage is the total minus auxiliary allocations; preserve both when backing up. Always take a backup before applying a migration. Back up the token secret separately in your secret manager; a restored database is only fully usable with the same secret.
 
 ### Key rotation
 

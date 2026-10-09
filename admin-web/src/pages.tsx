@@ -8,7 +8,7 @@ export type PageProps = { tenant: string; revision: number; onChanged: (message:
 
 const option = (value: string, label: string): Option => ({ value, label: `${label}（${value}）` });
 const STATUS_KEYS = new Set(['status', 'session_status', 'metering_mode', 'limit_mode', 'period_kind', 'service_kind', 'redemption_mode', 'role', 'event_type']);
-const TIME_KEYS = new Set(['effective_at', 'expires_at', 'term_start', 'term_end', 'period_start', 'period_end', 'admitted_at', 'session_expires_at', 'closed_at', 'used_at', 'created_at']);
+const TIME_KEYS = new Set(['effective_at', 'expires_at', 'term_start', 'term_end', 'period_start', 'period_end', 'admitted_at', 'session_expires_at', 'closed_at', 'used_at', 'revoked_at', 'created_at']);
 
 function column(key: string, extra: Partial<Column> = {}): Column {
   return {
@@ -157,7 +157,7 @@ export function MembersPage(props: PageProps) {
   }} />;
 }
 
-export function AssignmentsPage(props: PageProps) {
+function MainAssignmentPage(props: PageProps) {
   const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
   return <ConfigPage {...props} spec={{
     searchKeys: ['subject_id', 'level_code'], table: 'tq_assignments', title: '用户等级', addLabel: '设置用户等级', editable: true,
@@ -174,6 +174,55 @@ export function AssignmentsPage(props: PageProps) {
       level_code: d.level_code, effective_at: d.effective_at, expires_at: d.expires_at, renew_term: d.renew_term,
     }),
   }} />;
+}
+
+export function AssignmentsPage(props: PageProps) {
+  const services = useCodes('tq_services', 'service_code', props.tenant, props.revision);
+  const packages = useCodes('tq_packages', 'package_code', props.tenant, props.revision);
+  return <>
+    <MainAssignmentPage {...props} />
+    <ConfigPage {...props} focus={undefined} spec={{
+      table: 'tq_packages', title: '辅助额度包模板', addLabel: '创建额度包', editable: true,
+      searchKeys: ['package_code', 'service_code'],
+      description: '每个包补充一个指定服务的额度。修改或删除模板不影响已发放的用户包；多个包可支持同一服务。',
+      columns: ['package_code', 'name', 'service_code', 'units'].map(k => column(k)),
+      fields: [
+        { name: 'package_code', label: '包代码', required: true, key: true },
+        { name: 'name', label: '包名称', required: true },
+        { name: 'service_code', label: '支持的服务', required: true, options: services },
+        { name: 'units', label: '额度数量', required: true, type: 'number', min: 1 },
+      ],
+      save: (t, d) => put(`/tenants/${enc(t)}/packages/${enc(required(d.package_code, '包代码'))}`, {
+        name: d.name, service_code: d.service_code, units: d.units,
+      }),
+      remove: { label: '删除', confirm: r => `删除包模板 ${text(r.package_code)}？已发放的包仍然有效。`,
+        run: (t, r) => api(`/tenants/${enc(t)}/packages/${enc(text(r.package_code))}`, 'DELETE') },
+    }} />
+    <ConfigPage {...props} focus={props.focus?.subject_id ? { subject_id: props.focus.subject_id } : undefined} spec={{
+      table: 'tq_package_grants', title: '用户辅助额度包', addLabel: '给用户发放额度包', editable: true,
+      searchKeys: ['subject_id', 'grant_code', 'package_code', 'service_code'],
+      description: '主包优先，副包按最早到期顺序扣减。发放编号标识一份独立包，同一用户可重复购买同一模板；每次使用不同编号。撤销保留历史且不能恢复。',
+      columns: [
+        ...['subject_id', 'grant_code', 'package_code', 'service_code', 'total_units', 'used_units'].map(k => column(k)),
+        { key: '_remaining', title: '未用余额', render: r => Math.max(0, Number(r.total_units) - Number(r.used_units)) },
+        { key: '_state', title: '状态', render: r => r.revoked_at ? '已撤销' : r.expires_at && new Date(String(r.expires_at)).getTime() <= Date.now() ? '已到期' : new Date(String(r.effective_at)).getTime() > Date.now() ? '待生效' : Number(r.used_units) >= Number(r.total_units) ? '已用完' : '有效' },
+        ...['effective_at', 'expires_at', 'revoked_at'].map(k => column(k)),
+      ],
+      fields: [
+        { name: 'subject_id', label: '用户 ID', type: 'number', required: true, key: true, min: 1 },
+        { name: 'grant_code', label: '发放编号', required: true, key: true, hint: '例如订单号；重复保存同一编号不会新增包' },
+        { name: 'package_code', label: '额度包模板', required: true, key: true, options: packages },
+        { name: 'total_units', label: '此包总额度', type: 'number', min: 1, hint: '发放时留空使用模板额度；编辑不能少于已用量' },
+        { name: 'effective_at', label: '生效时间', type: 'datetime', hint: '留空立即生效' },
+        { name: 'expires_at', label: '到期时间', type: 'datetime', hint: '留空长期有效；不会随主包周期重置' },
+      ],
+      save: (t, d) => put(`/tenants/${enc(t)}/subjects/${enc(required(d.subject_id, '用户 ID'))}/packages/${enc(required(d.grant_code, '发放编号'))}`, {
+        package_code: d.package_code, total_units: d.total_units, effective_at: d.effective_at, expires_at: d.expires_at,
+      }),
+      remove: { label: '撤销', confirm: r => `撤销用户 ${text(r.subject_id)} 的包 ${text(r.grant_code)}？剩余额度立即不可用，消费记录保留。`,
+        run: (t, r) => api(`/tenants/${enc(t)}/subjects/${enc(text(r.subject_id))}/packages/${enc(text(r.grant_code))}`, 'DELETE') },
+    }} />
+  </>;
 }
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:9460';
@@ -332,8 +381,9 @@ function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: 
     column('quota_code'),
     { key: 'services', title: '服务', render: r => (r.services as string[]).join('、') || '—' },
     { key: 'limit', title: '额度', render: r => r.limit_mode === 'unlimited' ? '不限' : text(r.limit) },
-    { key: 'used', title: '本周期已用', render: r => r.error ? <span className="error">{text(r.error)}</span> : text(r.used) },
-    { key: 'remaining', title: '剩余', render: r => r.remaining === null ? '不限' : text(r.remaining) },
+    { key: 'used', title: '主包本周期已用', render: r => r.error ? <span className="error">{text(r.error)}</span> : text(r.used) },
+    { key: 'remaining', title: '主包剩余', render: r => r.remaining === null ? '不限' : text(r.remaining) },
+    { key: 'service_balances', title: '副包剩余（按服务）', render: r => (r.service_balances as { service_code: string; auxiliary_remaining: number }[] || []).map(b => `${b.service_code}：${b.auxiliary_remaining}`).join('、') || '—' },
     column('period_kind'),
     { key: 'period_end', title: '重置时间', render: r => time(r.period_end) },
   ];

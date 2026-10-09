@@ -35,4 +35,6 @@ export const columnNames: Record<string, string> = {
   status: '状态', admitted_at: '准入时间', consumed_units: '消耗', session_status: '场次状态',
   session_expires_at: '场次到期', closed_at: '结束时间', token_id: '凭证 ID', slot_no: '序号', used_at: '使用时间',
   event_type: '事件', delta_units: '变动', created_at: '时间',
+  package_code: '额度包代码', grant_code: '发放编号', name: '名称', units: '额度数量',
+  total_units: '包总额度', revoked_at: '撤销时间',
 };

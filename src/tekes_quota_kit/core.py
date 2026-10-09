@@ -18,6 +18,9 @@ from .models import (
     Ledger,
     Level,
     Limit,
+    Package,
+    PackageCharge,
+    PackageGrant,
     Quota,
     Service,
     ServiceMember,
@@ -358,6 +361,213 @@ class QuotaKit:
         with self.sessions.begin() as db:
             if self._level(db, tenant, code) is None:
                 db.add(Level(tenant_id=tenant, level_code=code))
+
+    def put_package(self, tenant: str, code: str, name: str, service: str, units: int) -> None:
+        _require(
+            type(units) is int and 0 < units <= MAX_SUBJECT_ID,
+            "invalid_units",
+            "Package units must be positive",
+            400,
+        )
+        with self.sessions.begin() as db:
+            target = db.scalar(
+                select(Service).where(Service.tenant_id == tenant, Service.service_code == service)
+            )
+            _require(
+                target is not None and target.quota_code is not None,
+                "unknown_service",
+                "Package requires a directly charged Service",
+                400,
+            )
+            row = db.scalar(
+                select(Package)
+                .where(Package.tenant_id == tenant, Package.package_code == code)
+                .with_for_update()
+            )
+            if row is None:
+                row = Package(tenant_id=tenant, package_code=code)
+                db.add(row)
+            row.name, row.service_code, row.units = name, service, units
+
+    def delete_package(self, tenant: str, code: str) -> None:
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(Package)
+                .where(Package.tenant_id == tenant, Package.package_code == code)
+                .with_for_update()
+            )
+            _require(row is not None, "unknown_package", "Package not found", 404)
+            db.delete(row)  # Issued grants remain independent snapshots.
+
+    def put_package_grant(
+        self,
+        tenant: str,
+        subject: int,
+        code: str,
+        package: str,
+        effective_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        total_units: int | None = None,
+    ) -> None:
+        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        _require(0 < len(code) <= 64, "invalid_code", "Grant code must be 1 to 64 characters", 400)
+        now = utc_now()
+        with self.sessions.begin() as db:
+            identity = (
+                PackageGrant.tenant_id == tenant,
+                PackageGrant.subject_id == subject,
+                PackageGrant.grant_code == code,
+            )
+            # Non-locking existence read avoids a gap-lock deadlock on concurrent first grants.
+            row = db.scalar(select(PackageGrant).where(*identity))
+            if row is None:
+                template = db.scalar(
+                    select(Package)
+                    .where(Package.tenant_id == tenant, Package.package_code == package)
+                    .with_for_update()
+                )
+                _require(template is not None, "unknown_package", "Package not found", 404)
+                service = db.scalar(
+                    select(Service).where(
+                        Service.tenant_id == tenant, Service.service_code == template.service_code
+                    )
+                )
+                _require(
+                    service is not None and service.quota_code is not None,
+                    "no_quota",
+                    "Service has no Quota",
+                )
+                values = dict(
+                    tenant_id=tenant,
+                    subject_id=subject,
+                    grant_code=code,
+                    package_code=package,
+                    service_code=template.service_code,
+                    quota_code=service.quota_code,
+                    total_units=template.units,
+                    used_units=0,
+                    effective_at=effective_at or now,
+                )
+                if db.bind.dialect.name == "mysql":
+                    stmt = mysql_insert(PackageGrant).values(**values)
+                    db.execute(stmt.on_duplicate_key_update(id=PackageGrant.id))
+                else:
+                    stmt = sqlite_insert(PackageGrant).values(**values)
+                    db.execute(
+                        stmt.on_conflict_do_nothing(
+                            index_elements=["tenant_id", "subject_id", "grant_code"]
+                        )
+                    )
+            row = db.scalar(
+                select(PackageGrant)
+                .where(*identity)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            _require(
+                row.package_code == package,
+                "grant_conflict",
+                "Existing grant cannot change package",
+            )
+            _require(row.revoked_at is None, "grant_revoked", "Revoked grants cannot reopen")
+            start = effective_at or row.effective_at
+            _require(
+                expires_at is None or expires_at > start,
+                "invalid_expiry",
+                "Expiry must follow start",
+                400,
+            )
+            if total_units is not None:
+                _require(
+                    type(total_units) is int
+                    and 0 < total_units <= MAX_SUBJECT_ID
+                    and row.used_units <= total_units,
+                    "invalid_units",
+                    "Total cannot be below usage",
+                    400,
+                )
+                row.total_units = total_units
+            row.effective_at, row.expires_at = start, expires_at
+
+    def revoke_package_grant(self, tenant: str, subject: int, code: str) -> None:
+        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        with self.sessions.begin() as db:
+            row = db.scalar(
+                select(PackageGrant)
+                .where(
+                    PackageGrant.tenant_id == tenant,
+                    PackageGrant.subject_id == subject,
+                    PackageGrant.grant_code == code,
+                )
+                .with_for_update()
+            )
+            _require(row is not None, "unknown_grant", "User package not found", 404)
+            row.revoked_at = row.revoked_at or utc_now()
+
+    @staticmethod
+    def _packages(
+        db: Session,
+        tenant: str,
+        subject: int,
+        service: str,
+        quota: str,
+        now: datetime,
+        *,
+        lock: bool = False,
+    ) -> list[PackageGrant]:
+        stmt = (
+            select(PackageGrant)
+            .where(
+                PackageGrant.tenant_id == tenant,
+                PackageGrant.subject_id == subject,
+                PackageGrant.service_code == service,
+                PackageGrant.quota_code == quota,
+                PackageGrant.revoked_at.is_(None),
+                PackageGrant.effective_at <= now,
+                (PackageGrant.expires_at.is_(None)) | (PackageGrant.expires_at > now),
+            )
+            .order_by(PackageGrant.expires_at.is_(None), PackageGrant.expires_at, PackageGrant.id)
+        )
+        return list(db.scalars(stmt.with_for_update() if lock else stmt).all())
+
+    def _available(
+        self, db: Session, row: Token, limit: Limit, usage: Usage, now: datetime
+    ) -> int | None:
+        if limit.limit_mode == "unlimited":
+            return None
+        return max(0, limit.limit_value - usage.used_units) + sum(
+            max(0, g.total_units - g.used_units)
+            for g in self._packages(
+                db, row.tenant_id, row.subject_id, row.service_code, row.quota_code, now, lock=True
+            )
+        )
+
+    def _charge(
+        self,
+        db: Session,
+        row: Token,
+        usage: Usage,
+        units: int,
+        now: datetime,
+        *,
+        allow_overdraft: bool = False,
+    ) -> None:
+        main = (
+            units
+            if row.limit_value is None
+            else min(units, max(0, row.limit_value - usage.used_units))
+        )
+        left = units - main
+        for grant in self._packages(
+            db, row.tenant_id, row.subject_id, row.service_code, row.quota_code, now, lock=True
+        ):
+            take = min(left, max(0, grant.total_units - grant.used_units))
+            if take:
+                grant.used_units += take
+                db.add(PackageCharge(token_id=row.id, grant_id=grant.id, units=take))
+                left -= take
+        _require(left == 0 or allow_overdraft, "quota_exhausted", "Quota exhausted")
+        usage.used_units += main + left
 
     def put_limit(
         self,
@@ -702,7 +912,7 @@ class QuotaKit:
             )
             usage = self._usage(db, issuer.tenant_id, subject, quota.quota_code, start, end)
             _require(
-                limit.limit_mode == "unlimited" or usage.used_units < limit.limit_value,
+                (available := self._available(db, row, limit, usage, now)) is None or available > 0,
                 "quota_exhausted",
                 "Quota exhausted",
             )
@@ -794,7 +1004,7 @@ class QuotaKit:
             )
             usage = self._usage(db, row.tenant_id, subject, quota.quota_code, start, end)
             _require(
-                limit.limit_mode == "unlimited" or usage.used_units < limit.limit_value,
+                (available := self._available(db, row, limit, usage, now)) is None or available > 0,
                 "quota_exhausted",
                 "Quota exhausted",
             )
@@ -806,7 +1016,7 @@ class QuotaKit:
                 quota.metering_mode,
                 limit.limit_value,
             )
-            usage.used_units += 1
+            self._charge(db, row, usage, 1, now)
             row.consumed_units = 1
             self._ledger(db, row, "consume", 1, now)
             return {
@@ -865,9 +1075,7 @@ class QuotaKit:
                     "Request key already has another duration",
                 )
                 grants = db.scalars(
-                    select(TokenItem).where(
-                        TokenItem.token_id == prior.id, TokenItem.slot_no == 0
-                    )
+                    select(TokenItem).where(TokenItem.token_id == prior.id, TokenItem.slot_no == 0)
                 ).all()
                 return {
                     "token": token,
@@ -898,9 +1106,7 @@ class QuotaKit:
                     "Request key already has another duration",
                 )
                 grants = db.scalars(
-                    select(TokenItem).where(
-                        TokenItem.token_id == row.id, TokenItem.slot_no == 0
-                    )
+                    select(TokenItem).where(TokenItem.token_id == row.id, TokenItem.slot_no == 0)
                 ).all()
                 return {
                     "token": token,
@@ -933,7 +1139,8 @@ class QuotaKit:
             usage = self._usage(db, provider.tenant_id, subject, quota.quota_code, start, end)
             units = service.charge_units
             _require(
-                limit.limit_mode == "unlimited" or usage.used_units + units <= limit.limit_value,
+                (available := self._available(db, row, limit, usage, now)) is None
+                or available >= units,
                 "quota_exhausted",
                 "Quota exhausted",
             )
@@ -948,16 +1155,12 @@ class QuotaKit:
             row.consumed_units = units
             row.session_status = "open"
             ttl_seconds = (
-                duration_seconds
-                if duration_seconds is not None
-                else service.session_ttl_seconds
+                duration_seconds if duration_seconds is not None else service.session_ttl_seconds
             )
             row.session_expires_at = (
-                now + timedelta(seconds=ttl_seconds)
-                if ttl_seconds is not None
-                else None
+                now + timedelta(seconds=ttl_seconds) if ttl_seconds is not None else None
             )
-            usage.used_units += units
+            self._charge(db, row, usage, units, now)
             self._ledger(db, row, "consume", units, now)
             child_grants = (
                 [(member.child_service_code, member.max_uses) for member in members]
@@ -1186,7 +1389,7 @@ class QuotaKit:
             usage = self._usage(
                 db, row.tenant_id, row.subject_id, row.quota_code, row.period_start, row.period_end
             )
-            usage.used_units += consumed_units
+            self._charge(db, row, usage, consumed_units, now, allow_overdraft=True)
             row.consumed_units, row.status = consumed_units, "settled"
             self._ledger(db, row, "consume", consumed_units, now)
             return {"status": "settled", "consumed_units": consumed_units, "idempotent": False}
@@ -1225,7 +1428,19 @@ class QuotaKit:
             usage = self._usage(
                 db, row.tenant_id, subject, row.quota_code, row.period_start, row.period_end
             )
-            usage.used_units -= row.consumed_units
+            allocations = db.scalars(
+                select(PackageCharge)
+                .where(PackageCharge.token_id == row.id)
+                .order_by(PackageCharge.grant_id)
+            ).all()
+            auxiliary = 0
+            for charge in allocations:
+                grant = db.scalar(
+                    select(PackageGrant).where(PackageGrant.id == charge.grant_id).with_for_update()
+                )
+                grant.used_units -= charge.units
+                auxiliary += charge.units
+            usage.used_units -= row.consumed_units - auxiliary
             row.status = "refunded"
             self._ledger(db, row, "refund", -row.consumed_units, now)
             return {"status": "refunded", "idempotent": False}
@@ -1278,12 +1493,26 @@ class QuotaKit:
             remaining = (
                 None if limit.limit_mode == "unlimited" else max(0, limit.limit_value - used)
             )
+            packages = self._packages(
+                db, caller.tenant_id, subject, caller.service_code, quota.quota_code, now
+            )
+            auxiliary = sum(max(0, g.total_units - g.used_units) for g in packages)
             return {
+                "main_remaining": remaining,
+                "auxiliary_remaining": auxiliary,
+                "packages": [
+                    {
+                        "grant_code": g.grant_code,
+                        "remaining": max(0, g.total_units - g.used_units),
+                        "expires_at": g.expires_at.isoformat() + "Z" if g.expires_at else None,
+                    }
+                    for g in packages
+                ],
                 "quota_code": quota.quota_code,
                 "unit": quota.unit_code,
                 "limit": limit.limit_value,
                 "used": used,
-                "remaining": remaining,
+                "remaining": None if remaining is None else remaining + auxiliary,
                 "period_end": end.isoformat() + "Z",
             }
 
@@ -1347,6 +1576,18 @@ class QuotaKit:
                         **item,
                         "used": used,
                         "remaining": remaining,
+                        "service_balances": [
+                            {
+                                "service_code": code,
+                                "auxiliary_remaining": sum(
+                                    max(0, g.total_units - g.used_units)
+                                    for g in self._packages(
+                                        db, tenant, subject, code, limit.quota_code, now
+                                    )
+                                ),
+                            }
+                            for code in services
+                        ],
                         "period_start": stamp(start),
                         "period_end": stamp(end),
                     }
@@ -1391,7 +1632,16 @@ class QuotaKit:
                 "Only redeeming provider may inspect redeemed token",
                 403,
             )
+            charges = db.execute(
+                select(PackageGrant.grant_code, PackageCharge.units)
+                .join(PackageCharge, PackageCharge.grant_id == PackageGrant.id)
+                .where(PackageCharge.token_id == row.id)
+            ).all()
             return {
+                "main_consumed_units": (row.consumed_units or 0) - sum(c.units for c in charges),
+                "package_charges": [
+                    {"grant_code": c.grant_code, "units": c.units} for c in charges
+                ],
                 "status": row.status,
                 "session_status": row.session_status,
                 "consumed_units": row.consumed_units,
