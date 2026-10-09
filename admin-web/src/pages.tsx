@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Select } from 'antd';
 import { api, download, enc } from './api';
-import { Actions, Editor, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
+import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
 import { columnNames, type Row, text, time } from './types';
 
 // `focus` narrows a page to matching rows, e.g. { level_code: 'member' } when jumping from a Level.
@@ -23,6 +24,7 @@ function column(key: string, extra: Partial<Column> = {}): Column {
 
 type Spec = {
   searchKeys?: string[];
+  id?: string;
   table: string; title: string; description: ReactNode; addLabel: string;
   columns: Column[]; fields: Field[]; defaults?: Row; editable?: boolean;
   save: (tenant: string, data: Row) => Promise<unknown>;
@@ -45,7 +47,7 @@ function ConfigPage({ spec, tenant, revision, onChanged, focus, onNavigate, sect
     ...(spec.remove ? [{ label: spec.remove.label, danger: true, action: () => void remove(row) }] : []),
   ]} /> };
   const columns = spec.editable || spec.remove ? [...spec.columns, actions] : spec.columns;
-  return <section className="panel">
+  return <section id={spec.id} className="panel">
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}</p></div><button onClick={() => setCreating(true)}>{spec.addLabel}</button></div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {spec.searchKeys && <SearchBar keys={spec.searchKeys} labels={columnNames} value={filters} onSearch={search} />}
@@ -99,7 +101,7 @@ export function LimitsPage(props: PageProps) {
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} section={section} spec={{
     searchKeys: ['level_code', 'quota_code'], table: 'tq_limits', title: '等级额度', addLabel: '新增等级额度', editable: true,
-    description: '某个 Level 在每个周期对某个配额能用多少。创建后周期和时区不能修改。',
+    description: '所有用户额度包共用这里的 Level 额度定义，同一 Level 可配置多项 Quota。在用户编辑页发放等级包并调整扣费顺序。创建后周期和时区不能修改。',
     columns: ['level_code', 'quota_code', 'limit_mode', 'limit_value', 'period_kind', 'timezone'].map(k => column(k)),
     defaults: { limit_mode: 'finite', period_kind: 'month', timezone: 'Asia/Shanghai' },
     fields: [
@@ -157,72 +159,101 @@ export function MembersPage(props: PageProps) {
   }} />;
 }
 
-function MainAssignmentPage(props: PageProps) {
-  const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
-  return <ConfigPage {...props} spec={{
-    searchKeys: ['subject_id', 'level_code'], table: 'tq_assignments', title: '用户等级', addLabel: '设置用户等级', editable: true,
-    description: '把用户放到某个 Level。会期内换级沿用原会期，勾选“开始新会期”才重置。',
-    columns: ['subject_id', 'level_code', 'effective_at', 'expires_at', 'term_start', 'term_end'].map(k => column(k)),
-    fields: [
-      { name: 'subject_id', label: '用户 ID', type: 'number', required: true, key: true, min: 1 },
-      { name: 'level_code', label: 'Level', required: true, options: levels },
-      { name: 'effective_at', label: '生效时间', type: 'datetime', hint: '留空为立即生效' },
-      { name: 'expires_at', label: '到期时间', type: 'datetime', hint: '会员期周期必填' },
-      { name: 'renew_term', label: '开始新会期', type: 'checkbox' },
-    ],
-    save: (t, d) => put(`/tenants/${enc(t)}/subjects/${enc(required(d.subject_id, '用户 ID'))}/level`, {
-      level_code: d.level_code, effective_at: d.effective_at, expires_at: d.expires_at, renew_term: d.renew_term,
-    }),
-  }} />;
+type UserPackage = {
+  id?: number; level_code: string; effective_at: string | null; expires_at: string | null;
+  status?: string; quotas?: { quota_code: string; limit: number | null; used?: number; remaining?: number | null; error?: string }[];
+};
+type UserPackages = { subject_id: number; subject_key: string; revision: number; packages: UserPackage[] };
+const localDate = (value: string | null) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+
+function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
+  tenant: string; subject: string | null; levels: Option[]; onClose: () => void; onChanged: (message: string) => void;
+}) {
+  const [subjectId, setSubjectId] = useState(subject == null ? '' : String(subject));
+  const [packages, setPackages] = useState<UserPackage[]>([]), [version, setVersion] = useState(0);
+  const [ready, setReady] = useState(subject == null);
+  const [loading, setLoading] = useState(subject != null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => {
+    if (subject == null) return;
+    let active = true;
+    api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${subject}/level-packages`).then(data => {
+      if (active) { setPackages(data.packages); setVersion(data.revision); setReady(true); }
+    }).catch(e => { if (active) setError(e instanceof Error ? e.message : '加载失败'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tenant, subject]);
+  const update = (index: number, patch: Partial<UserPackage>) => setPackages(rows => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
+  const move = (index: number, delta: number) => setPackages(rows => {
+    const next = [...rows]; [next[index], next[index + delta]] = [next[index + delta], next[index]]; return next;
+  });
+  async function save(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      if (!/^\d+$/.test(subjectId) || BigInt(subjectId) <= 0n || BigInt(subjectId) > 9223372036854775807n) throw new Error('请填写有效用户 ID');
+      if (packages.some(p => !p.level_code)) throw new Error('请选择每份包的等级');
+      if (subject == null) {
+        const existing = await api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${subjectId}/level-packages`);
+        if (existing.packages.length || existing.revision !== version) throw new Error('该用户已有记录，请在用户列表中编辑');
+      }
+      await put(`/tenants/${enc(tenant)}/subjects/${subjectId}/level-packages`, {
+        revision: version, packages: packages.map(p => ({ id: p.id, level_code: p.level_code, effective_at: p.effective_at, expires_at: p.expires_at })),
+      });
+      onChanged('已保存用户额度包与扣费顺序'); onClose();
+    } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); } finally { setBusy(false); }
+  }
+  return <Drawer title={subject == null ? '设置用户额度包' : '编辑用户额度包'} onClose={() => { if (!busy) onClose(); }}>
+    <form onSubmit={save}>
+      <label>用户 ID<input type="text" inputMode="numeric" required disabled={subject != null || busy} value={subjectId} onChange={e => setSubjectId(e.target.value)} /></label>
+      <p className="muted">从上往下扣费，跳过不支持服务、未生效、已过期或用完的包。调序保留已用额度；移除保留消费历史。额度定义在“等级额度”维护。</p>
+      {error && <div className="error-box" role="alert">{error}</div>}
+      {loading ? <p className="muted">正在加载…</p> : <>
+        {packages.map((pack, index) => <section className="user-package" key={pack.id ?? `new-${index}`} aria-label={`额度包 ${index + 1}`}>
+          <div className="toolbar"><strong>扣费顺序 {index + 1}</strong><span className="muted">{pack.status === 'expired' ? '已过期' : pack.status === 'pending' ? '待生效' : pack.id ? '已发放' : '待发放'}</span>
+            <button type="button" className="secondary" aria-label={`上移额度包 ${index + 1}`} disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>
+            <button type="button" className="secondary" aria-label={`下移额度包 ${index + 1}`} disabled={busy || index === packages.length - 1} onClick={() => move(index, 1)}>下移</button>
+            <button type="button" className="ghost danger" disabled={busy} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button>
+          </div>
+          <label>等级额度包 {index + 1}<Select aria-label={`等级额度包 ${index + 1}`} showSearch optionFilterProp="label" options={levels} placeholder="选择 Level" value={pack.level_code || undefined} disabled={Boolean(pack.id) || busy} onChange={value => update(index, { level_code: value })} /></label>
+          <div className="grid two">
+            <label>生效时间<input type="datetime-local" disabled={Boolean(pack.id) || busy} value={localDate(pack.effective_at)} onChange={e => update(index, { effective_at: e.target.value ? new Date(e.target.value).toISOString() : null })} /></label>
+            <label>到期时间<input type="datetime-local" disabled={busy} value={localDate(pack.expires_at)} onChange={e => update(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })} /></label>
+          </div>
+          <small className="muted">生效时间留空立即生效；会员期额度必须填写到期时间。延长到期时间保留已用量，发放新包才增加一份额度。</small>
+          {pack.quotas?.map(q => <div className="package-balance" key={q.quota_code}><span className="code">{q.quota_code}</span><span>{q.error ? `未配置完整：${q.error}` : `已用 ${q.used ?? 0} / ${q.limit ?? '不限'} · 剩余 ${q.remaining ?? '不限'}`}</span></div>)}
+        </section>)}
+        {!packages.length && <p className="muted">尚无额度包，添加一个等级包即可。</p>}
+        <button type="button" className="secondary" disabled={busy || packages.length >= 100} onClick={() => setPackages(rows => [...rows, { level_code: '', effective_at: null, expires_at: null }])}>添加等级额度包</button>
+      </>}
+      <div className="form-actions"><button disabled={!ready || loading || busy}>{busy ? '保存中…' : '保存'}</button><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button></div>
+    </form>
+  </Drawer>;
 }
 
 export function AssignmentsPage(props: PageProps) {
-  const services = useCodes('tq_services', 'service_code', props.tenant, props.revision);
-  const packages = useCodes('tq_packages', 'package_code', props.tenant, props.revision);
-  return <>
-    <MainAssignmentPage {...props} />
-    <ConfigPage {...props} focus={undefined} spec={{
-      table: 'tq_packages', title: '辅助额度包模板', addLabel: '创建额度包', editable: true,
-      searchKeys: ['package_code', 'service_code'],
-      description: '每个包补充一个指定服务的额度。修改或删除模板不影响已发放的用户包；多个包可支持同一服务。',
-      columns: ['package_code', 'name', 'service_code', 'units'].map(k => column(k)),
-      fields: [
-        { name: 'package_code', label: '包代码', required: true, key: true },
-        { name: 'name', label: '包名称', required: true },
-        { name: 'service_code', label: '支持的服务', required: true, options: services },
-        { name: 'units', label: '额度数量', required: true, type: 'number', min: 1 },
-      ],
-      save: (t, d) => put(`/tenants/${enc(t)}/packages/${enc(required(d.package_code, '包代码'))}`, {
-        name: d.name, service_code: d.service_code, units: d.units,
-      }),
-      remove: { label: '删除', confirm: r => `删除包模板 ${text(r.package_code)}？已发放的包仍然有效。`,
-        run: (t, r) => api(`/tenants/${enc(t)}/packages/${enc(text(r.package_code))}`, 'DELETE') },
-    }} />
-    <ConfigPage {...props} focus={props.focus?.subject_id ? { subject_id: props.focus.subject_id } : undefined} spec={{
-      table: 'tq_package_grants', title: '用户辅助额度包', addLabel: '给用户发放额度包', editable: true,
-      searchKeys: ['subject_id', 'grant_code', 'package_code', 'service_code'],
-      description: '主包优先，副包按最早到期顺序扣减。发放编号标识一份独立包，同一用户可重复购买同一模板；每次使用不同编号。撤销保留历史且不能恢复。',
-      columns: [
-        ...['subject_id', 'grant_code', 'package_code', 'service_code', 'total_units', 'used_units'].map(k => column(k)),
-        { key: '_remaining', title: '未用余额', render: r => Math.max(0, Number(r.total_units) - Number(r.used_units)) },
-        { key: '_state', title: '状态', render: r => r.revoked_at ? '已撤销' : r.expires_at && new Date(String(r.expires_at)).getTime() <= Date.now() ? '已到期' : new Date(String(r.effective_at)).getTime() > Date.now() ? '待生效' : Number(r.used_units) >= Number(r.total_units) ? '已用完' : '有效' },
-        ...['effective_at', 'expires_at', 'revoked_at'].map(k => column(k)),
-      ],
-      fields: [
-        { name: 'subject_id', label: '用户 ID', type: 'number', required: true, key: true, min: 1 },
-        { name: 'grant_code', label: '发放编号', required: true, key: true, hint: '例如订单号；重复保存同一编号不会新增包' },
-        { name: 'package_code', label: '额度包模板', required: true, key: true, options: packages },
-        { name: 'total_units', label: '此包总额度', type: 'number', min: 1, hint: '发放时留空使用模板额度；编辑不能少于已用量' },
-        { name: 'effective_at', label: '生效时间', type: 'datetime', hint: '留空立即生效' },
-        { name: 'expires_at', label: '到期时间', type: 'datetime', hint: '留空长期有效；不会随主包周期重置' },
-      ],
-      save: (t, d) => put(`/tenants/${enc(t)}/subjects/${enc(required(d.subject_id, '用户 ID'))}/packages/${enc(required(d.grant_code, '发放编号'))}`, {
-        package_code: d.package_code, total_units: d.total_units, effective_at: d.effective_at, expires_at: d.expires_at,
-      }),
-      remove: { label: '撤销', confirm: r => `撤销用户 ${text(r.subject_id)} 的包 ${text(r.grant_code)}？剩余额度立即不可用，消费记录保留。`,
-        run: (t, r) => api(`/tenants/${enc(t)}/subjects/${enc(text(r.subject_id))}/packages/${enc(text(r.grant_code))}`, 'DELETE') },
-    }} />
-  </>;
+  const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
+  const [offset, setOffset] = useState(0), [filters, setFilters] = useState<Row>(props.focus ?? {});
+  const [data, setData] = useState<{ rows: UserPackages[]; total: number }>({ rows: [], total: 0 });
+  const [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const [editing, setEditing] = useState<string | null | undefined>(undefined);
+  const query = Object.entries(filters).filter(([, value]) => value != null && value !== '').map(([key, value]) => `&${enc(key)}=${enc(String(value))}`).join('');
+  useEffect(() => {
+    let active = true; setLoading(true); setError('');
+    api<{ rows: UserPackages[]; total: number }>(`/tenants/${enc(props.tenant)}/subjects?limit=${PAGE_SIZE}&offset=${offset}${query}`)
+      .then(result => { if (active) setData(result); }).catch(e => { if (active) setError(e instanceof Error ? e.message : '加载失败'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [props.tenant, props.revision, offset, query]);
+  const columns: Column[] = [column('subject_id', { render: row => String(row.subject_key) }), { key: 'packages', title: '额度包（按扣费顺序）', render: row => {
+    const packs = row.packages as UserPackage[];
+    return packs.length ? packs.map((p, i) => <span className="ordered-package" key={p.id}>{i + 1}. {p.level_code}{p.status === 'expired' ? '（已过期）' : p.status === 'pending' ? '（待生效）' : ''}</span>) : <span className="muted">无额度包</span>;
+  } }, { key: '_count', title: '包数量', render: row => (row.packages as UserPackage[]).length }, { key: '_actions', title: '操作', render: row => <button className="secondary" onClick={() => setEditing(String(row.subject_key))}>编辑额度包</button> }];
+  return <section className="panel">
+    <div className="panel-head"><div><h2>用户等级</h2><p className="muted">每个用户可持有多个等级额度包。编辑用户可以发放、移除包，并调整扣费顺序。</p></div><button onClick={() => setEditing(null)}>设置用户额度包</button></div>
+    <SearchBar keys={['subject_id', 'level_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
+    <Table columns={columns} data={data.rows as unknown as Row[]} loading={loading} error={error} />
+    <Pager offset={offset} total={data.total} onChange={setOffset} />
+    {editing !== undefined && <UserPackagesEditor key={`${props.tenant}-${editing}`} tenant={props.tenant} subject={editing} levels={levels} onClose={() => setEditing(undefined)} onChanged={props.onChanged} />}
+  </section>;
 }
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:9460';

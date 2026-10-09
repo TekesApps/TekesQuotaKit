@@ -643,51 +643,59 @@ Setup shared by all flows (admin key):
 7. Provider, periodically: `GET /v1/tokens/unsettled` to find admitted tokens that were never settled.
 
 
-## Auxiliary packages
+## Ordered user Level packages
 
-All management endpoints below use admin authentication and are tenant scoped:
+Every package uses existing Level limits (`PUT /tenants/{tenant}/levels/{level}/limits/{quota}`).
+A Level can support multiple Quotas/Services. Management is admin authenticated and tenant scoped:
 
-| Method | Path after `/v1/admin/tenants/{tenant}` | Body / behavior |
+| Method | Path after `/v1/admin/tenants/{tenant}` | Behavior |
 | --- | --- | --- |
-| PUT | `/packages/{package_code}` | `name`, `service_code`, positive integer `units`; create/update a template |
-| DELETE | `/packages/{package_code}` | Delete template; issued user snapshots remain valid |
-| PUT | `/subjects/{subject_id}/packages/{grant_code}` | `package_code`, optional `total_units`, `effective_at`, `expires_at`; create/update a user package |
-| DELETE | `/subjects/{subject_id}/packages/{grant_code}` | Revoke immediately; preserve history; idempotent |
+| GET | `/subjects?limit=10&offset=0` | One row per user; optional exact `subject_id`, `level_code` filters |
+| GET | `/subjects/{subject_id}/level-packages` | All unremoved packages, usage and revision; includes expired/pending packages |
+| PUT | `/subjects/{subject_id}/level-packages` | Atomically save the complete ordered list; absent packages are revoked |
 
-List/read templates and user packages with `/v1/admin/tables/tq_packages` and
-`/v1/admin/tables/tq_package_grants`, using `tenant` and optional exact-match filters such as
-`subject_id`, `package_code`, `grant_code`, or `service_code`. `tq_package_charges` exposes the
-immutable allocation records, tenant scoped through tokens (`token_id`, `grant_id`, `units`).
+The save body is `{ "revision": 1, "packages": [{ "id": 123, "level_code": "member",
+"effective_at": "2026-10-09T00:00:00Z", "expires_at": null }, { "level_code": "temporary",
+"expires_at": "2026-10-16T00:00:00+08:00" }] }`. Existing IDs retain their original Level and
+start time. New entries omit `id`; the same Level can be issued more than once with independent
+counters. Array position defines priority. A stale revision returns `packages_changed`; unknown,
+foreign or repeated IDs are rejected and all changes roll back. An empty list revokes all packs.
+Membership sync also changes the revision, so an old editor cannot overwrite a renewal.
 
-Example: template `extra-visits` supports `measurement_session` with `units: 3`. Assign it to
-user 42 with `grant_code=order-123` and `expires_at=2026-10-16T00:00:00+08:00`. Another purchase
-gets a different grant code. Repeating the same code edits that same grant, never adds a second
-copy. Existing grants cannot change template or reopen after revocation. On update, omitted
-`total_units` and `effective_at` preserve existing values; omitted/null `expires_at` removes
-expiry. Total quantity cannot be lower than already consumed quantity. Package and grant codes
-are 1–64 characters. Dates with no offset are interpreted as UTC.
+Effective/expiry dates use UTC if no offset is specified; expiry must follow start. `level_term`
+limits require expiry. Extending expiry retains the original period start and consumed amount.
+Remove and issue a new package to change Level or start a new term. New packages use current
+Level limits (they are not snapshots of Level configuration); editing an amount on 等级额度 applies
+to packages of that Level. Limit period/timezone remain immutable, as before.
 
-Templates support one directly charged Service each. User packages snapshot Service, Quota and
-quantity on issue; later template changes do not alter them. Packages do not grant permission:
-normal membership and Limit authorization still apply. A parent durable Service consumes its
-own packages once on redeem; child `use` never charges again. Remapping a Service to another
-Quota makes old grants ineligible for that Service.
+Admission and per-use charging traverse packages in saved order, skip unsupported, future,
+expired, revoked and exhausted sources, and split atomically if needed. A later Level package
+can grant access to a Service absent from the first Level. Quota sharing across Services applies
+within each package. Unlimited sources respect order and absorb the remaining charge.
 
-Main quota is consumed first; packages cover the shortfall, in earliest-expiry order, permanent
-packages last, ID ascending for ties. Finite per-use redemption checks the full quantity and
-allocates atomically; insufficient combined quota rolls back everything. `balance.remaining`
-is combined availability for the caller's exact Service; `used` and `limit` describe main quota.
-New fields: `main_remaining`, `auxiliary_remaining`, and `packages` (grant code, remaining and
-expiry). The admin user usage summary keeps main quota amounts and adds `service_balances`
-with service-specific auxiliary remaining quantities; these cannot be merged across Services.
-Token status adds `main_consumed_units` and `package_charges` for the original consumption;
-these remain historical after refund.
+`balance.remaining`, `limit` and `used` aggregate applicable Level packages; `level_packages`
+reports each ID, Level, order, original period, amount, usage and remaining quota.
+`main_remaining` and `auxiliary_remaining` remain compatibility projections for the first
+applicable Level package versus the rest. Token status includes `level_package_charges`
+(assignment ID, Level, units); allocation history remains after refund. Refunds restore the
+original counters/periods even after reorder, expiry or revocation and do not reactivate a pack.
 
-Refunds restore the original main period and package allocations exactly once, even after
-expiry/revocation; they never extend package validity. Existing per-use refund restrictions
-still apply. Metered issuance does not reserve quota. Metered settlement uses current eligible
-packages and the original main-period/Limit snapshot, retaining the existing overage policy:
-if actual settlement exceeds all available amounts, the excess is booked to main usage rather
-than rejecting a completed operation. No package can exceed its own quantity. An admitted
-metered token remains settleable after membership expiry or package revocation; these changes
-block future admission, not accounting for an already admitted operation.
+Metered issuance checks combined availability but does not reserve it. It snapshots applicable
+ordered Level packages, periods and limits. Settlement uses those snapshots, even after package
+expiry/removal; any actual overage is booked to the first admitted Level package, preserving
+completed-operation accounting. Future requests use the newly saved order. Durable parent
+charging happens only once on begin/redeem; child use does not charge again.
+
+The existing `/subjects/{subject_id}/level` and membership integration keep one legacy package
+backed by original `tq_usage`, retaining consumed amounts across same-term Level changes.
+Synchronization preserves extra Level packages and its list position. Ending membership revokes
+all active and scheduled packages. Admin removal and original charge records retain history.
+
+### Legacy v0.9 service top-ups
+
+`/packages/{code}` and `/subjects/{subject_id}/packages/{code}` PUT/DELETE remain available for
+existing integrations. Their separate template/grant console screens have been removed.
+These grants are service-specific snapshots, never authorize a Service on their own, and are
+charged after the ordered Level packages, in earliest-expiry order. `packages` and
+`package_charges` in responses still describe these old grants. Their tables and historical
+refunds are preserved. New deployments should use ordered Level packages above.

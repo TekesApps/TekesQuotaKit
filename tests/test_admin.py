@@ -61,7 +61,7 @@ def test_admin_lists_all_tables_and_scopes_token_items(tmp_path):
     assert client.get("/admin").status_code == 200
     assert client.get("/v1/admin/tables").status_code == 401
     names = client.get("/v1/admin/tables", headers=admin_headers()).json()["tables"]
-    assert len(names) == 14
+    assert len(names) == 18
     for name in names:
         response = client.get(
             f"/v1/admin/tables/{name}",

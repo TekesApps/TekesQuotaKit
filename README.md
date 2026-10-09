@@ -145,20 +145,24 @@ The console works at `/admin` or behind a reverse proxy path prefix such as `/us
 
 Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKES_QUOTA_TOKEN_SECRET` from the environment; `serve` also needs `TEKES_QUOTA_ADMIN_KEY`.
 
-## Auxiliary quota packages
+## Ordered user Level packages
 
-A user keeps their main Level and can hold multiple independent top-ups. Each package template
-supports one directly charged Service with a positive integer quantity; issue several packages
-for different Services. Packages supplement quantity, not permissions: an active Level with a
-Limit for that Service's Quota is still required. Templates and user packages are managed on
-**用户等级** in the admin console.
+Maintain package definitions on **等级额度**: a Level can grant several Quotas and each Quota
+can be shared by several Services. On **用户等级**, choose **编辑额度包** to issue several packages,
+including repeated copies of a Level, view their usage, edit expiry, remove packages, or move
+them up/down. The explicit list order determines consumption; the first applicable package is
+charged first. No distinct primary/secondary package type is needed.
 
-Consumption uses the main period allowance first, then valid, unrevoked packages supporting
-that exact Service and Quota, earliest expiry first (no expiry last, then grant ID). One charge
-can split across sources. Each grant has a separate issuance code, quantity and validity window;
-it never resets with the main period. Changing/deleting a template leaves issued snapshots intact.
-Deleting a user package revokes it and retains history; refunds restore original sources and do
-not reactivate expired/revoked packages. See [API details](docs/api.md#auxiliary-packages).
+Each issued package has independent counters and its own validity/period. Unsupported, future,
+expired, removed and exhausted packages are skipped. One charge can split across eligible
+packages atomically; insufficient per-use quota rolls back the whole request. Reordering or
+extending expiry retains usage; refunds restore their exact original source. Existing membership
+sync continues to maintain its original package and usage, preserving extra packages and order.
+Ending membership revokes all active and scheduled packages.
+
+Clients remain bound to one Service and do not choose Quotas or packages; Kit resolves the
+Service's Quota. See [API details](docs/api.md#ordered-user-level-packages). Legacy v0.9 service
+top-up APIs are retained for compatibility but no longer appear in the console.
 
 ## Known limitations
 

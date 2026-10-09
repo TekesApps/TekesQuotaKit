@@ -178,3 +178,53 @@ def test_mysql_packages_concurrent_issue_charge_and_refund():
     kit.refund(token, caller, 42)
     assert kit.refund(token, caller, 42)["idempotent"]
     assert kit.balance(caller, 42)["remaining"] == 1
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEKES_QUOTA_TEST_DATABASE_URL"), reason="No disposable MySQL URL"
+)
+def test_mysql_ordered_levels_concurrent_charge_edit_and_original_refund():
+    url = os.environ["TEKES_QUOTA_TEST_DATABASE_URL"]
+    assert make_url(url).database.startswith("tekes_quota_test_")
+    kit = QuotaKit(url, "test-token-secret-with-at-least-32-characters")
+    Base.metadata.create_all(kit.engine)
+    tenant = "ordered-level-mysql-test"
+    kit.put_quota(tenant, "visits", "use", "per_use")
+    kit.put_service(tenant, "visit", "visits")
+    kit.put_level(tenant, "extra")
+    kit.put_limit(tenant, "extra", "visits", "finite", 1, "month", "Asia/Shanghai")
+    key = "mysql-ordered-client-key-with-at-least-32-characters"
+    kit.put_client("mysql-ordered-client", key, tenant, "visit", "consumer")
+    caller = kit.client(key, "provider")
+    kit.save_user_packages(tenant, 42, [dict(level_code="extra")] * 2, 0)
+
+    def consume(n):
+        try:
+            return kit.redeem(caller, 42, "visit", f"ordered-{n}")["token"]
+        except QuotaError as exc:
+            assert exc.code == "quota_exhausted"
+            return None
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        tokens = list(pool.map(consume, range(4)))
+    assert sum(t is not None for t in tokens) == 2
+    assert kit.balance(caller, 42)["remaining"] == 0
+    state = kit.user_packages(tenant, 42)
+    items = [
+        dict(id=p["id"], level_code="extra", expires_at=None) for p in reversed(state["packages"])
+    ]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+
+        def save(_):
+            try:
+                kit.save_user_packages(tenant, 42, items, state["revision"])
+                return "saved"
+            except QuotaError as exc:
+                return exc.code
+
+        assert sorted(pool.map(save, range(2))) == ["packages_changed", "saved"]
+    for token in tokens:
+        if token:
+            kit.refund(token, caller, 42)
+            assert kit.refund(token, caller, 42)["idempotent"]
+    assert kit.balance(caller, 42)["remaining"] == 2

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -82,6 +82,18 @@ class AssignmentConfig(BaseModel):
     effective_at: datetime | None = None
     expires_at: datetime | None = None
     renew_term: bool = False
+
+
+class UserLevelPackage(BaseModel):
+    id: int | None = Field(default=None, gt=0, strict=True)
+    level_code: str = Field(min_length=1, max_length=64)
+    effective_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class UserLevelPackages(BaseModel):
+    revision: int = Field(ge=0, strict=True)
+    packages: list[UserLevelPackage] = Field(max_length=100)
 
 
 class IssueRequest(BaseModel):
@@ -285,6 +297,43 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             renew_term=payload.renew_term,
         )
         return {"subject_id": subject_id, "level_code": payload.level_code}
+
+    @app.get("/v1/admin/tenants/{tenant}/subjects", dependencies=[Depends(admin)])
+    def list_subjects(
+        tenant: str,
+        limit: int = Query(default=10, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+        subject_id: int | None = Query(default=None, gt=0),
+        level_code: str | None = None,
+    ) -> dict:
+        return kit.list_package_subjects(tenant, limit, offset, subject_id, level_code)
+
+    @app.get(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level-packages",
+        dependencies=[Depends(admin)],
+    )
+    def user_level_packages(tenant: str, subject_id: int) -> dict:
+        return kit.user_packages(tenant, subject_id)
+
+    @app.put(
+        "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level-packages",
+        dependencies=[Depends(admin)],
+    )
+    def save_user_level_packages(
+        tenant: str,
+        subject_id: int,
+        payload: UserLevelPackages,
+    ) -> dict:
+        items = [
+            dict(
+                id=p.id,
+                level_code=p.level_code,
+                effective_at=_utc_naive(p.effective_at),
+                expires_at=_utc_naive(p.expires_at),
+            )
+            for p in payload.packages
+        ]
+        return kit.save_user_packages(tenant, subject_id, items, payload.revision)
 
     @app.post("/v1/begin")
     def begin(payload: BeginRequest, caller: Annotated[Client, Depends(provider)]) -> dict:

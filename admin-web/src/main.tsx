@@ -122,4 +122,4 @@ function App() {
       </main></div></div>;
 }
 
-createRoot(document.getElementById('root')!).render(<ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#18775f', fontSize: 16, borderRadius: 7, controlHeight: 38, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' } }}><App /></ConfigProvider>);
+createRoot(document.getElementById('root')!).render(<ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#18775f', fontSize: 12.8, lineHeight: 1.5, fontSizeSM: 11.2, fontSizeLG: 14.4, fontSizeXL: 16, borderRadius: 7, controlHeight: 38, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' } }}><App /></ConfigProvider>);

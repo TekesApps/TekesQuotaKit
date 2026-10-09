@@ -1,14 +1,14 @@
 /* Original skzy-admin login presentation, isolated from admin page styles. */
-.login {font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:normal;font-synthesis:none;color:#233b37;background:#f5f7f6;display:grid;grid-template-columns:1.05fr 1fr;min-height:100vh;place-items:stretch;padding:0;}
+.login {font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;font-size:calc(14px * var(--font-scale));line-height:normal;font-synthesis:none;color:#233b37;background:#f5f7f6;display:grid;grid-template-columns:1.05fr 1fr;min-height:100vh;place-items:stretch;padding:0;}
 .login h1,.login h2,.login h3,.login p {margin-top:0;}
-.login h1 {font-size:29px;letter-spacing:-1px;margin-bottom:12px;}
-.login h2 {font-size:20px;line-height:normal;margin-bottom:.83em;}
+.login h1 {font-size:calc(29px * var(--font-scale));letter-spacing:-1px;margin-bottom:12px;}
+.login h2 {font-size:calc(20px * var(--font-scale));line-height:normal;margin-bottom:.83em;}
 .login p {line-height:1.8;margin-bottom:1em;}
 .login .muted {color:#74847d;}
-.login .wordmark {font-size:23px;font-weight:650;letter-spacing:1px;}
-.login .wordmark span {font-size:10px;letter-spacing:2px;margin-left:12px;opacity:.6;}
-.login .eyebrow {font-size:10px;letter-spacing:2px;color:#819b91;margin-bottom:12px;}
-.login label {display:grid;gap:8px;margin:18px 0;color:inherit;font-size:14px;}
+.login .wordmark {font-size:calc(23px * var(--font-scale));font-weight:650;letter-spacing:1px;}
+.login .wordmark span {font-size:calc(10px * var(--font-scale));letter-spacing:2px;margin-left:12px;opacity:.6;}
+.login .eyebrow {font-size:calc(10px * var(--font-scale));letter-spacing:2px;color:#819b91;margin-bottom:12px;}
+.login label {display:grid;gap:8px;margin:18px 0;color:inherit;font-size:calc(14px * var(--font-scale));}
 .login input {font:inherit;border:1px solid #d5dfdc;border-radius:7px;padding:11px 12px;background:white;color:#233b37;min-width:0;min-height:0;}
 .login button {font:inherit;cursor:pointer;border:1px solid #d9e3df;background:white;border-radius:7px;padding:9px 14px;color:#285247;min-height:0;}
 .login button:hover {background:#edf4f1;}
@@ -16,15 +16,15 @@
 .login button:focus-visible,.login input:focus-visible {outline:3px solid #8acabd;outline-offset:2px;}
 .login .primary {background:#18775f;border-color:#18775f;color:white;}
 .login .primary:hover {background:#125e4b;}
-.login .tag {font-size:12px;color:#297b62;background:#eaf4ee;border-radius:5px;padding:6px 9px;display:inline-block;}
+.login .tag {font-size:calc(12px * var(--font-scale));color:#297b62;background:#eaf4ee;border-radius:5px;padding:6px 9px;display:inline-block;}
 .login .error {padding:12px 16px;border-radius:8px;margin:16px 0;background:#fff0ed;color:#a03d2e;}
 .login-story {padding:60px 9%;background:#163f35;color:#f0f6eb;display:flex;flex-direction:column;justify-content:space-between;}
-.login-story h1 {font-size:46px;line-height:1.5;}
+.login-story h1 {font-size:calc(46px * var(--font-scale));line-height:1.5;}
 .login-story p {color:#adc6b8;}
 .login-story small {color:#91b09e;}
 .login-panel {display:flex;align-items:center;justify-content:center;padding:50px;}
 .login-panel form {width:360px;}
-.login-panel h2 {font-size:29px;margin-top:20px;}
+.login-panel h2 {font-size:calc(29px * var(--font-scale));margin-top:20px;}
 .login-panel .primary {width:100%;margin-top:14px;}
-@media(max-width:950px){.login-story h1{font-size:32px;}}
-@media(max-width:680px){.login{grid-template-columns:1fr;}.login-story{min-height:300px;padding:30px;}.login-story h1{font-size:28px;}.login-panel{padding:30px;}}
+@media(max-width:950px){.login-story h1{font-size:calc(32px * var(--font-scale));}}
+@media(max-width:680px){.login{grid-template-columns:1fr;}.login-story{min-height:300px;padding:30px;}.login-story h1{font-size:calc(28px * var(--font-scale));}.login-panel{padding:30px;}}

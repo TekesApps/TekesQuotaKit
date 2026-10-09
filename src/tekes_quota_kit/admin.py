@@ -27,6 +27,9 @@ from .models import (
     Client,
     Ledger,
     Level,
+    LevelPackageAdmission,
+    LevelPackageCharge,
+    LevelPackageUsage,
     Limit,
     Package,
     PackageCharge,
@@ -34,6 +37,7 @@ from .models import (
     Quota,
     Service,
     ServiceMember,
+    SubjectPackages,
     Tenant,
     Token,
     TokenItem,
@@ -45,9 +49,13 @@ TABLES = {
     for model in (
         Client,
         Level,
+        LevelPackageAdmission,
+        LevelPackageCharge,
+        LevelPackageUsage,
         Quota,
         Limit,
         Assignment,
+        SubjectPackages,
         Package,
         PackageGrant,
         PackageCharge,
@@ -642,6 +650,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                 select(func.count(func.distinct(Assignment.subject_id))).where(
                     Assignment.tenant_id == tenant,
                     Assignment.effective_at <= now,
+                    Assignment.revoked_at.is_(None),
                     (Assignment.expires_at.is_(None) | (Assignment.expires_at > now)),
                 )
             )
@@ -714,9 +723,13 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             filters.append(getattr(model, key) == value)
         with kit.sessions() as db:
             query = select(model)
-            if model in {TokenItem, PackageCharge}:
+            if model in {TokenItem, PackageCharge, LevelPackageCharge, LevelPackageAdmission}:
                 query = query.join(Token, Token.id == model.token_id).where(
                     Token.tenant_id == tenant
+                )
+            elif model is LevelPackageUsage:
+                query = query.join(Assignment, Assignment.id == model.assignment_id).where(
+                    Assignment.tenant_id == tenant
                 )
             else:
                 query = query.where(model.tenant_id == tenant)
