@@ -215,10 +215,10 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
           </div>
           <label>等级额度包 {index + 1}<Select aria-label={`等级额度包 ${index + 1}`} showSearch optionFilterProp="label" options={levels} placeholder="选择 Level" value={pack.level_code || undefined} disabled={Boolean(pack.id) || busy} onChange={value => update(index, { level_code: value })} /></label>
           <div className="grid two">
-            <label>生效时间<input type="datetime-local" disabled={Boolean(pack.id) || busy} value={localDate(pack.effective_at)} onChange={e => update(index, { effective_at: e.target.value ? new Date(e.target.value).toISOString() : null })} /></label>
-            <label>到期时间<input type="datetime-local" disabled={busy} value={localDate(pack.expires_at)} onChange={e => update(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })} /></label>
+            <label>生效时间{pack.id ? <input readOnly value={time(pack.effective_at)} /> : <input type="datetime-local" disabled={busy} value={localDate(pack.effective_at)} onChange={e => update(index, { effective_at: e.target.value ? new Date(e.target.value).toISOString() : null })} />}</label>
+            <label>到期时间{pack.id ? <input readOnly value={pack.expires_at ? time(pack.expires_at) : '长期有效'} /> : <input type="datetime-local" disabled={busy} value={localDate(pack.expires_at)} onChange={e => update(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })} />}</label>
           </div>
-          <small className="muted">生效时间留空立即生效；会员期额度必须填写到期时间。延长到期时间保留已用量，发放新包才增加一份额度。</small>
+          <small className="muted">{pack.id ? '日期沿用发放或会员同步时的设定，在这里只读显示。' : '生效时间留空立即生效；会员期额度必须填写到期时间。'}</small>
           {pack.quotas?.map(q => <div className="package-balance" key={q.quota_code}><span className="code">{q.quota_code}</span><span>{q.error ? `未配置完整：${q.error}` : `已用 ${q.used ?? 0} / ${q.limit ?? '不限'} · 剩余 ${q.remaining ?? '不限'}`}</span></div>)}
         </section>)}
         {!packages.length && <p className="muted">尚无额度包，添加一个等级包即可。</p>}

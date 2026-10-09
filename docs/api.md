@@ -656,14 +656,15 @@ A Level can support multiple Quotas/Services. Management is admin authenticated 
 
 The save body is `{ "revision": 1, "packages": [{ "id": 123, "level_code": "member",
 "effective_at": "2026-10-09T00:00:00Z", "expires_at": null }, { "level_code": "temporary",
-"expires_at": "2026-10-16T00:00:00+08:00" }] }`. Existing IDs retain their original Level and
-start time. New entries omit `id`; the same Level can be issued more than once with independent
+"expires_at": "2026-10-16T00:00:00+08:00" }] }`. Existing IDs retain their original Level, start time and expiry. Changing expiry through
+this editor API returns `package_term_immutable`. New entries omit `id`; the same Level can be issued more than once with independent
 counters. Array position defines priority. A stale revision returns `packages_changed`; unknown,
 foreign or repeated IDs are rejected and all changes roll back. An empty list revokes all packs.
 Membership sync also changes the revision, so an old editor cannot overwrite a renewal.
 
 Effective/expiry dates use UTC if no offset is specified; expiry must follow start. `level_term`
-limits require expiry. Extending expiry retains the original period start and consumed amount.
+limits require expiry. Issued package dates are read-only in the user editor. Issuance and membership sync keep their
+existing date rules.
 Remove and issue a new package to change Level or start a new term. New packages use current
 Level limits (they are not snapshots of Level configuration); editing an amount on 等级额度 applies
 to packages of that Level. Limit period/timezone remain immutable, as before.

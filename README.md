@@ -149,14 +149,13 @@ Commands other than `generate-secrets` read `TEKES_QUOTA_DATABASE_URL` and `TEKE
 
 Maintain package definitions on **等级额度**: a Level can grant several Quotas and each Quota
 can be shared by several Services. On **用户等级**, choose **编辑额度包** to issue several packages,
-including repeated copies of a Level, view their usage, edit expiry, remove packages, or move
+including repeated copies of a Level, view their usage and read-only dates, remove packages, or move
 them up/down. The explicit list order determines consumption; the first applicable package is
 charged first. No distinct primary/secondary package type is needed.
 
 Each issued package has independent counters and its own validity/period. Unsupported, future,
 expired, removed and exhausted packages are skipped. One charge can split across eligible
-packages atomically; insufficient per-use quota rolls back the whole request. Reordering or
-extending expiry retains usage; refunds restore their exact original source. Existing membership
+packages atomically; insufficient per-use quota rolls back the whole request. Reordering retains dates and usage; refunds restore their exact original source. Existing membership
 sync continues to maintain its original package and usage, preserving extra packages and order.
 Ending membership revokes all active and scheduled packages.
 

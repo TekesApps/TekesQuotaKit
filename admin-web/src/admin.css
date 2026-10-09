@@ -35,7 +35,7 @@
     }
     button.secondary { color: var(--text); background: #e8eee9; }
     button.ghost { color: var(--primary); background: transparent; border: 1px solid var(--line); }
-    button.danger { background: var(--danger); }
+    button.danger { color: #fff; background: var(--danger); }
     button.warn { background: var(--warn); }
     button:disabled { cursor: not-allowed; opacity: .55; }
     input, select, textarea {
@@ -381,3 +381,5 @@
 .user-package .toolbar {flex-wrap:wrap;gap:8px;}
 .package-balance {display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .ordered-package {display:inline-block;margin-right:16px;}
+
+.admin-shell label > input[readonly] { background: var(--soft); color: var(--text); }
