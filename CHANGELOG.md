@@ -8,6 +8,28 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-11
+
+### Changed
+
+- **Breaking:** user IDs (`subject_id`) are case-sensitive strings of 1 to 128 characters from
+  `A-Z a-z 0-9 . _ : @ -`, so a business system can use IDs such as a WeChat union_id directly.
+  Every response returns `subject_id` as a JSON string; clients that decode it as an integer
+  must change. `subject_key` in user package payloads is deprecated and equals `subject_id`.
+- A positive JSON integer `subject_id` is still accepted and read as its decimal string, so
+  existing clients sending `42` keep reaching the same user, usage and tokens. Strings are kept
+  exactly: `"042"` and `"42"`, or `"AbC"` and `"abc"`, are different users.
+- Tokens for numeric IDs are derived exactly as before, so a retried request with the same
+  `request_key` keeps the token it was issued before the upgrade.
+- The admin user list is ordered by most recent assignment instead of by numeric ID.
+
+### Migration
+
+- Apply `migrations/alter_subject_id_string_mysql.sql` to a 0.10.x installation before starting
+  0.11.0. It rebuilds six tables (`tq_assignments`, `tq_usage`, `tq_subject_packages`,
+  `tq_tokens`, `tq_ledger`, `tq_package_grants`); run it in a low-traffic window. Rolling back
+  to 0.10.x is possible only until the first non-numeric `subject_id` is written.
+
 ## [0.10.1] - 2026-10-09
 
 ### Fixed

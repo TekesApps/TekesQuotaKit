@@ -17,7 +17,7 @@ CREATE TABLE tq_ledger (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	token_hash VARCHAR(64) NOT NULL,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	service_code VARCHAR(64) NOT NULL,
 	quota_code VARCHAR(64) NOT NULL,
 	usage_key VARCHAR(64) NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE tq_tokens (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	token_hash VARCHAR(64) NOT NULL,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	service_code VARCHAR(64) NOT NULL,
 	quota_code VARCHAR(64) NOT NULL,
 	usage_key VARCHAR(64) NOT NULL,
@@ -97,7 +97,7 @@ CREATE TABLE tq_token_items (
 CREATE TABLE tq_usage (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	quota_code VARCHAR(64) NOT NULL,
 	period_start DATETIME(6) NOT NULL,
 	period_end DATETIME(6) NOT NULL,
@@ -109,7 +109,7 @@ CREATE TABLE tq_usage (
 CREATE TABLE tq_assignments (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	level_code VARCHAR(64) NOT NULL,
 	effective_at DATETIME(6) NOT NULL,
 	expires_at DATETIME(6),
@@ -232,7 +232,7 @@ CREATE TABLE tq_packages (
 CREATE TABLE tq_package_grants (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	grant_code VARCHAR(64) NOT NULL,
 	package_code VARCHAR(64) NOT NULL,
 	service_code VARCHAR(64) NOT NULL,
@@ -262,7 +262,7 @@ CREATE TABLE tq_package_charges (
 CREATE TABLE tq_subject_packages (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
-	subject_id BIGINT NOT NULL,
+	subject_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	revision INTEGER NOT NULL,
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_subject_packages UNIQUE (tenant_id, subject_id)

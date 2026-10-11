@@ -163,7 +163,8 @@ type UserPackage = {
   id?: number; level_code: string; effective_at: string | null; expires_at: string | null;
   status?: string; quotas?: { quota_code: string; limit: number | null; used?: number; remaining?: number | null; error?: string }[];
 };
-type UserPackages = { subject_id: number; subject_key: string; revision: number; packages: UserPackage[] };
+type UserPackages = { subject_id: string; subject_key: string; revision: number; packages: UserPackage[] };
+const validSubjectId = (id: string) => /^[A-Za-z0-9._:@-]{1,128}$/.test(id) && !(/^-?\d+$/.test(id) && Number(id) <= 0);
 const localDate = (value: string | null) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 
 function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
@@ -176,7 +177,7 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
   useEffect(() => {
     if (subject == null) return;
     let active = true;
-    api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${subject}/level-packages`).then(data => {
+    api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${enc(subject)}/level-packages`).then(data => {
       if (active) { setPackages(data.packages); setVersion(data.revision); setReady(true); }
     }).catch(e => { if (active) setError(e instanceof Error ? e.message : '加载失败'); })
       .finally(() => { if (active) setLoading(false); });
@@ -189,13 +190,13 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      if (!/^\d+$/.test(subjectId) || BigInt(subjectId) <= 0n || BigInt(subjectId) > 9223372036854775807n) throw new Error('请填写有效用户 ID');
+      if (!validSubjectId(subjectId)) throw new Error('请填写有效用户 ID');
       if (packages.some(p => !p.level_code)) throw new Error('请选择每份包的等级');
       if (subject == null) {
-        const existing = await api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${subjectId}/level-packages`);
+        const existing = await api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`);
         if (existing.packages.length || existing.revision !== version) throw new Error('该用户已有记录，请在用户列表中编辑');
       }
-      await put(`/tenants/${enc(tenant)}/subjects/${subjectId}/level-packages`, {
+      await put(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`, {
         revision: version, packages: packages.map(p => ({ id: p.id, level_code: p.level_code, effective_at: p.effective_at, expires_at: p.expires_at })),
       });
       onChanged('已保存用户额度包与扣费顺序'); onClose();
@@ -203,7 +204,7 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
   }
   return <Drawer title={subject == null ? '设置用户额度包' : '编辑用户额度包'} onClose={() => { if (!busy) onClose(); }}>
     <form onSubmit={save}>
-      <label>用户 ID<input type="text" inputMode="numeric" required disabled={subject != null || busy} value={subjectId} onChange={e => setSubjectId(e.target.value)} /></label>
+      <label>用户 ID<input type="text" required disabled={subject != null || busy} value={subjectId} onChange={e => setSubjectId(e.target.value)} /></label>
       <p className="muted">从上往下扣费，跳过不支持服务、未生效、已过期或用完的包。调序保留已用额度；移除保留消费历史。额度定义在“等级额度”维护。</p>
       {error && <div className="error-box" role="alert">{error}</div>}
       {loading ? <p className="muted">正在加载…</p> : <>
@@ -243,10 +244,10 @@ export function AssignmentsPage(props: PageProps) {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [props.tenant, props.revision, offset, query]);
-  const columns: Column[] = [column('subject_id', { render: row => String(row.subject_key) }), { key: 'packages', title: '额度包（按扣费顺序）', render: row => {
+  const columns: Column[] = [column('subject_id', { render: row => String(row.subject_id) }), { key: 'packages', title: '额度包（按扣费顺序）', render: row => {
     const packs = row.packages as UserPackage[];
     return packs.length ? packs.map((p, i) => <span className="ordered-package" key={p.id}>{i + 1}. {p.level_code}{p.status === 'expired' ? '（已过期）' : p.status === 'pending' ? '（待生效）' : ''}</span>) : <span className="muted">无额度包</span>;
-  } }, { key: '_count', title: '包数量', render: row => (row.packages as UserPackage[]).length }, { key: '_actions', title: '操作', render: row => <button className="secondary" onClick={() => setEditing(String(row.subject_key))}>编辑额度包</button> }];
+  } }, { key: '_count', title: '包数量', render: row => (row.packages as UserPackage[]).length }, { key: '_actions', title: '操作', render: row => <button className="secondary" onClick={() => setEditing(String(row.subject_id))}>编辑额度包</button> }];
   return <section className="panel">
     <div className="panel-head"><div><h2>用户等级</h2><p className="muted">每个用户可持有多个等级额度包。编辑用户可以发放、移除包，并调整扣费顺序。</p></div><button onClick={() => setEditing(null)}>设置用户额度包</button></div>
     <SearchBar keys={['subject_id', 'level_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
@@ -285,7 +286,7 @@ export function BusinessPage({ tenant, revision, onChanged }: PageProps) {
         <label>系统代码<input value={tenant} disabled /><small className="muted">设置后不能修改</small></label>
       </div>
       <label>用户 ID 定义 *<input value={definition} required maxLength={500} placeholder="例如：user_table.id" onChange={e => setDefinition(e.target.value)} />
-        <small className="muted">按业务系统实际情况填写：subject_id 是哪张表的哪个整数字段。会员同步和所有服务请求都必须使用这个 ID。union_id、openid 这类字符串不能直接用，需要先换成整数 ID。</small></label>
+        <small className="muted">按业务系统实际情况填写：用户 ID 可以是整数或字符串 ID（如用户表 id、union_id、openid），允许字母、数字和 . _ : @ -，最长 128 位，区分大小写。会员同步和所有服务请求都必须使用同一个 ID；同一个人中途换用其他 ID 体系会被当作另一个用户，额度不会合并。</small></label>
       <div className="form-actions"><button disabled={busy}>{busy ? '保存中…' : '保存'}</button></div>
     </form>}
   </section>;
@@ -340,7 +341,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const membership = form?.role === 'membership';
   const definitionField: Field = definition
     ? { name: 'subject_id_definition', label: '用户 ID 定义', locked: true, hint: '已在业务系统设定，所有凭据共用。要修改请到“用户与接入 → 业务系统”' }
-    : { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id', hint: '本业务系统还没有设定。按实际情况填写：subject_id 是哪张表的哪个整数字段。之后只能在“业务系统”页修改' };
+    : { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id 或 union_id', hint: '本业务系统还没有设定。用户 ID 可以是整数或字符串 ID（如 union_id、openid），允许字母、数字和 . _ : @ -，最长 128 位，区分大小写；同一个人必须始终使用同一个 ID，中途换 ID 体系会被当作另一个用户。之后只能在“业务系统”页修改' };
   // Two forms: a member-sync credential has a fixed role and no Service; a Service credential
   // picks its Service and one of the Service roles.
   const fields: Field[] = membership ? [
@@ -393,7 +394,7 @@ export function DataPage({ kind, tenant, revision, focus }: PageProps & { kind: 
 }
 
 type SubjectQuota = { quota_code: string; unit: string | null; services: string[]; limit_mode: string; limit: number | null; used?: number; remaining?: number | null; period_kind: string; period_end?: string; error?: string };
-type SubjectSummary = { subject_id: number; member: { level_code: string; effective_at: string; expires_at: string | null } | null; quotas: SubjectQuota[] };
+type SubjectSummary = { subject_id: string; member: { level_code: string; effective_at: string; expires_at: string | null } | null; quotas: SubjectQuota[] };
 
 /** One user's Level and this period's usage of every 配额 it grants, as admission sees it now. */
 function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: string; revision: number }) {
@@ -401,7 +402,7 @@ function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: 
   useEffect(() => {
     let active = true;
     setData(null); setError('');
-    if (!/^\d+$/.test(subject)) { setError('用户 ID 必须是正整数'); return; }
+    if (!validSubjectId(subject)) { setError('请填写有效用户 ID'); return; }
     api<SubjectSummary>(`/tenants/${enc(tenant)}/subjects/${enc(subject)}/usage`).then(r => { if (active) setData(r); }).catch(e => { if (active) setError(e instanceof Error ? e.message : '加载失败'); });
     return () => { active = false; };
   }, [tenant, subject, revision]);

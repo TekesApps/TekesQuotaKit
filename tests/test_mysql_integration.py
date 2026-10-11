@@ -228,3 +228,28 @@ def test_mysql_ordered_levels_concurrent_charge_edit_and_original_refund():
             kit.refund(token, caller, 42)
             assert kit.refund(token, caller, 42)["idempotent"]
     assert kit.balance(caller, 42)["remaining"] == 2
+
+
+@pytest.mark.skipif(
+    not os.getenv("TEKES_QUOTA_TEST_DATABASE_URL"), reason="No disposable MySQL URL"
+)
+def test_mysql_subject_ids_compare_exactly():
+    url = os.environ["TEKES_QUOTA_TEST_DATABASE_URL"]
+    assert make_url(url).database.startswith("tekes_quota_test_")
+    kit = QuotaKit(url, "test-token-secret-with-at-least-32-characters")
+    Base.metadata.create_all(kit.engine)
+    tenant = "subject-case-mysql-test"
+    kit.put_quota(tenant, "visits", "use", "per_use")
+    kit.put_service(tenant, "visit", "visits")
+    kit.put_level(tenant, "regular")
+    kit.put_limit(tenant, "regular", "visits", "finite", 1, "month", "Asia/Shanghai")
+    key = "mysql-subject-case-key-with-at-least-32-characters"
+    kit.put_client("mysql-subject-case", key, tenant, "visit", "consumer")
+    caller = kit.client(key, "provider")
+    # A case-insensitive collation would merge these users and their quota.
+    for subject in ("oAbC_x", "oabc_x", "042"):
+        kit.assign(tenant, subject, "regular")
+        kit.redeem(caller, subject, "visit", f"case-{subject}")
+    assert kit.membership(tenant, 42) is None
+    assert kit.membership(tenant, "OABC_X") is None
+    assert kit.list_package_subjects(tenant)["total"] == 3

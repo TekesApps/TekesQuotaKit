@@ -224,22 +224,23 @@ class LevelPackages:
             )
         return dict(
             subject_id=subject,
-            subject_key=str(subject),
+            # Deprecated since 0.11.0: equal to subject_id now that IDs are strings.
+            subject_key=subject,
             revision=state.revision if state else 0,
             packages=items,
         )
 
     def user_packages(self, tenant, subject):
-        from .core import _require, _valid_subject
+        from .core import _subject
 
-        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        subject = _subject(subject)
         with self.sessions() as db:
             return self._user_packages_payload(db, tenant, subject)
 
     def save_user_packages(self, tenant, subject, packages, revision):
-        from .core import _period, _require, _valid_subject, utc_now
+        from .core import _period, _require, _subject, utc_now
 
-        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        subject = _subject(subject)
         now = utc_now()
         with self.sessions.begin() as db:
             state = self._lock_subject(db, tenant, subject)
@@ -334,9 +335,12 @@ class LevelPackages:
             return self._user_packages_payload(db, tenant, subject)
 
     def list_package_subjects(self, tenant, limit=10, offset=0, subject=None, level=None):
+        from .core import _subject
+
         with self.sessions() as db:
             query = select(Assignment.subject_id).where(Assignment.tenant_id == tenant)
             if subject is not None:
+                subject = _subject(subject)
                 query = query.where(Assignment.subject_id == subject)
             if level is not None:
                 history = aliased(Assignment)
@@ -354,9 +358,10 @@ class LevelPackages:
                     Assignment.revoked_at.is_(None),
                     (Assignment.package_code != "membership") | (Assignment.id == latest),
                 )
-            query = query.distinct()
+            query = query.group_by(Assignment.subject_id)
             total = db.scalar(select(func.count()).select_from(query.subquery()))
+            # String IDs have no numeric order; list the most recently assigned user first.
             ids = db.scalars(
-                query.order_by(Assignment.subject_id.desc()).offset(offset).limit(limit)
+                query.order_by(func.max(Assignment.id).desc()).offset(offset).limit(limit)
             )
             return dict(total=total, rows=[self._user_packages_payload(db, tenant, s) for s in ids])

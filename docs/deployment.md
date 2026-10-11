@@ -300,6 +300,14 @@ Do not mix old/new service processes while issuing ordered packages; old version
 those balances. Keep legacy v0.9 top-up history/tables intact. Rollback to v0.9.x is safe before
 new Level packages are issued; after issuance, stop writers and assess accounting first.
 
+### Upgrading to string user IDs (0.11.0)
+
+0.11.0 changes `subject_id` from `BIGINT` to `VARCHAR(128)` (`ascii_bin` collation). Back up all `tq_` tables, stop service and maintenance writers, and apply `migrations/alter_subject_id_string_mysql.sql` to a 0.10.x schema **before** starting 0.11.0. It rebuilds six tables (`tq_assignments`, `tq_usage`, `tq_subject_packages`, `tq_tokens`, `tq_ledger`, `tq_package_grants`), so plan a low-traffic window. `init-schema` cannot alter columns and does not replace this migration. Fresh installs use the complete DDL.
+
+Existing numeric IDs keep working: old clients sending `42` reach the same user and quota, and tokens issued for numeric IDs are identical across the upgrade, so retries with the same `request_key` still return the same token. Responses now return `subject_id` as a JSON string; update clients that decode it as an integer.
+
+Rollback to 0.10.x is possible only until the first non-numeric `subject_id` is written. Keep the same ID for the same person: switching ID scheme (for example from user table `id` to OpenID) creates a different user whose quota is not merged.
+
 ### Backups
 
 All state is in the `tq_` tables (15 as of 0.4.0, including the console accounts and the business system registry). Do not hard-code the table list: new versions add tables, and a stale list silently drops them from the backup.

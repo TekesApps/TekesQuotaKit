@@ -15,7 +15,7 @@ TekesQuotaKit is a small FastAPI + SQLAlchemy service that acts as a shared enti
 | **Quota** | A countable allowance with a `unit_code` and a `metering_mode` of `per_use` or `reported_usage`. A Service charges one Quota. |
 | **Level** | A tier assigned to a subject, such as `regular` or `premium`. |
 | **Limit** | For one Level and one Quota: `finite` with a `limit_value`, or `unlimited`, over a period of `day`, `week` (Monday 00:00 to Monday 00:00), `month`, or `level_term`, computed in the Limit's timezone. |
-| **Assignment** | Links a subject (positive integer `subject_id`, scoped by tenant) to a Level, with optional `effective_at`, `expires_at`, and `renew_term`. |
+| **Assignment** | Links a subject (`subject_id` string such as `42` or `u_8f3k2`, scoped by tenant; JSON integers are accepted and converted) to a Level, with optional `effective_at`, `expires_at`, and `renew_term`. |
 | **Client credential** | A long random key bound to one tenant and one role. `issuer`, `provider`, and `consumer` credentials are bound to one Service. A `membership` credential is bound to no Service and only maintains the member list through `/v1/members`. Only the key's SHA-256 hash is stored. |
 | **Token** | Created per subject and request by `redeem` or `token`; used for settlement, use, stop, refund, and status. |
 | **Ledger** | Append-only record of every `consume` and `refund` event. |
@@ -30,6 +30,7 @@ All calls below are sent by a trusted backend with `Authorization: Bearer <clien
 
 ```text
 POST /v1/redeem  {"subject_id":42,"service_code":"report_export","request_key":"export-123"}
+POST /v1/redeem  {"subject_id":"u_8f3k2","service_code":"report_export","request_key":"export-124"}
 ```
 
 **Durable** (per-use Quota, `charge_units` > 0). `redeem` charges once and opens a session; each controlled attempt calls `use`; `stop` closes it. A composite parent grants its child Services, configured as rows in `tq_service_members`. `duration_seconds` (60 to 86400) is optional and falls back to the Service's `session_ttl_seconds`; with neither, the session stays open until `stop`.

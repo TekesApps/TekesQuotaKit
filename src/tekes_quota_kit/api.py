@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from . import __version__
 from .admin import create_admin_router
 from .admin_auth import AdminAccounts, require_admin_factory
-from .core import MEMBERSHIP_ROLE, QuotaError, QuotaKit
+from .core import MEMBERSHIP_ROLE, QuotaError, QuotaKit, SubjectId
 from .models import Client
 
 
@@ -64,7 +64,7 @@ class MemberRequest(BaseModel):
 
 
 class MemberItem(MemberRequest):
-    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    subject_id: SubjectId
 
 
 class MemberBatch(BaseModel):
@@ -97,13 +97,13 @@ class UserLevelPackages(BaseModel):
 
 
 class IssueRequest(BaseModel):
-    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    subject_id: SubjectId
     service_id: int = Field(gt=0)
     request_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class RedeemRequest(BaseModel):
-    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    subject_id: SubjectId
     service_id: int | None = Field(default=None, gt=0)
     service_code: str | None = Field(default=None, min_length=1, max_length=64)
     request_key: str | None = Field(default=None, min_length=1, max_length=128)
@@ -119,7 +119,7 @@ class SettleRequest(TokenRequest):
 
 
 class BeginRequest(BaseModel):
-    subject_id: int = Field(gt=0, le=9223372036854775807, strict=True)
+    subject_id: SubjectId
     service_code: str = Field(min_length=1, max_length=64)
     request_key: str = Field(min_length=1, max_length=128)
     duration_seconds: int | None = Field(default=None, ge=60, le=86400)
@@ -255,7 +255,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         dependencies=[Depends(admin)],
     )
     def put_package_grant(
-        tenant: str, subject_id: int, code: str, payload: PackageGrantConfig
+        tenant: str, subject_id: SubjectId, code: str, payload: PackageGrantConfig
     ) -> dict:
         if not 0 < len(code) <= 64:
             raise HTTPException(422, "Grant code must be 1 to 64 characters")
@@ -274,14 +274,14 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         "/v1/admin/tenants/{tenant}/subjects/{subject_id}/packages/{code}",
         dependencies=[Depends(admin)],
     )
-    def revoke_package_grant(tenant: str, subject_id: int, code: str) -> dict:
+    def revoke_package_grant(tenant: str, subject_id: SubjectId, code: str) -> dict:
         kit.revoke_package_grant(tenant, subject_id, code)
         return {"revoked": True}
 
     @app.put(
         "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level", dependencies=[Depends(admin)]
     )
-    def assign(tenant: str, subject_id: int, payload: AssignmentConfig) -> dict:
+    def assign(tenant: str, subject_id: SubjectId, payload: AssignmentConfig) -> dict:
         expiry = payload.expires_at
         if expiry is not None and expiry.tzinfo is not None:
             expiry = expiry.astimezone(UTC).replace(tzinfo=None)
@@ -303,7 +303,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         tenant: str,
         limit: int = Query(default=10, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
-        subject_id: int | None = Query(default=None, gt=0),
+        subject_id: Annotated[SubjectId | None, Query()] = None,
         level_code: str | None = None,
     ) -> dict:
         return kit.list_package_subjects(tenant, limit, offset, subject_id, level_code)
@@ -312,7 +312,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         "/v1/admin/tenants/{tenant}/subjects/{subject_id}/level-packages",
         dependencies=[Depends(admin)],
     )
-    def user_level_packages(tenant: str, subject_id: int) -> dict:
+    def user_level_packages(tenant: str, subject_id: SubjectId) -> dict:
         return kit.user_packages(tenant, subject_id)
 
     @app.put(
@@ -321,7 +321,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     )
     def save_user_level_packages(
         tenant: str,
-        subject_id: int,
+        subject_id: SubjectId,
         payload: UserLevelPackages,
     ) -> dict:
         items = [
@@ -349,7 +349,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def use(
         payload: UseRequest,
         caller: Annotated[Client, Depends(provider)],
-        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        x_subject_id: Annotated[SubjectId, Header()],
     ) -> dict:
         return kit.use(
             payload.token, caller, x_subject_id, payload.child_service_code, payload.request_key
@@ -359,7 +359,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def close(
         payload: TokenRequest,
         caller: Annotated[Client, Depends(provider)],
-        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        x_subject_id: Annotated[SubjectId, Header()],
     ) -> dict:
         return kit.close(payload.token, caller, x_subject_id)
 
@@ -394,7 +394,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def refund(
         payload: TokenRequest,
         caller: Annotated[Client, Depends(provider)],
-        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        x_subject_id: Annotated[SubjectId, Header()],
     ) -> dict:
         return kit.refund(payload.token, caller, x_subject_id)
 
@@ -402,13 +402,13 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     def token_status(
         payload: TokenRequest,
         caller: Annotated[Client, Depends(provider)],
-        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        x_subject_id: Annotated[SubjectId, Header()],
     ) -> dict:
         return kit.token_status(payload.token, caller, x_subject_id)
 
     @app.get("/v1/quota")
     def balance(
-        x_subject_id: Annotated[int, Header(gt=0, le=9223372036854775807)],
+        x_subject_id: Annotated[SubjectId, Header()],
         caller: Annotated[Client, Depends(issuer)],
     ) -> dict:
         return kit.balance(caller, x_subject_id)
@@ -420,7 +420,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     # Member sync: a `membership` client keeps the member list of its own business system.
     @app.put("/v1/members/{subject_id}")
     def put_member(
-        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        subject_id: Annotated[SubjectId, Path()],
         payload: MemberRequest,
         caller: Annotated[Client, Depends(membership)],
     ) -> dict:
@@ -435,14 +435,14 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     @app.get("/v1/members/{subject_id}")
     def get_member(
-        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        subject_id: Annotated[SubjectId, Path()],
         caller: Annotated[Client, Depends(membership)],
     ) -> dict:
         return {"subject_id": subject_id, "member": kit.membership(caller.tenant_id, subject_id)}
 
     @app.delete("/v1/members/{subject_id}")
     def end_member(
-        subject_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+        subject_id: Annotated[SubjectId, Path()],
         caller: Annotated[Client, Depends(membership)],
     ) -> dict:
         return {"subject_id": subject_id, "ended": kit.end_membership(caller.tenant_id, subject_id)}
