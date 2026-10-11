@@ -33,11 +33,23 @@ A client key whose role does not satisfy the endpoint is rejected exactly like a
 
 ### X-Subject-ID
 
-**One user ID per person, everywhere.** Kit never defines or looks up user IDs; the business system chooses which positive integer identifies a person, such as its user table's primary key. Member sync (`/v1/members`) and every Service request (`subject_id` in bodies, `X-Subject-ID` in headers) must send that same ID. Kit matches them by number only, so a member registered under one ID and served under another is rejected with 409 `no_level`. Both kinds of client contract open with this rule and carry it as `subject_id_rule`.
+**One user ID per person, everywhere.** Kit never defines or looks up user IDs; the business system chooses which ID identifies a person, such as its user table's primary key or an OpenID. Member sync (`/v1/members`) and every Service request (`subject_id` in bodies, `X-Subject-ID` in headers) must send that same ID. Kit matches them by exact string, so a member registered under one ID and served under another is rejected with 409 `no_level`. Switching ID scheme (for example from user table `id` to OpenID) creates a different user whose quota is not merged with the old one. Both kinds of client contract open with this rule and carry it as `subject_id_rule`.
 
-`POST /v1/use`, `POST /v1/close`, `POST /v1/token/refund`, `POST /v1/token/status`, and `GET /v1/quota` require an `X-Subject-ID` header. Its value is the subject ID as decimal text, a positive integer no larger than 9223372036854775807 (2^63-1). A missing, zero, negative, non-numeric, or out-of-range value returns 422. For token operations the header must match the subject the token was created for, otherwise the call fails with `scope_mismatch` (403).
+`POST /v1/use`, `POST /v1/close`, `POST /v1/token/refund`, `POST /v1/token/status`, and `GET /v1/quota` require an `X-Subject-ID` header holding the subject ID (format below). A missing or invalid value returns 422. For token operations the header must match the subject the token was created for, otherwise the call fails with `scope_mismatch` (403).
 
 Only your trusted backend should set this header, from its own authenticated session. Never let a browser or app supply it directly.
+
+### subject_id format
+
+Since 0.11.0 `subject_id` is a string of 1 to 128 characters matching `^[A-Za-z0-9._:@-]{1,128}$` (stored as `VARCHAR(128)` with `ascii_bin` collation). The same rule applies to the JSON body field, the `{subject_id}` URL path segment, the `X-Subject-ID` header, and the `?subject_id=` query parameter.
+
+- A JSON body may also send a positive integer up to 9223372036854775807 (2^63-1). It is converted to its decimal string, so `42` and `"42"` are the same user. Headers, paths, and query values are always text on the wire, so they are validated, not converted.
+- An all-digit string must be greater than 0.
+- Strings are kept verbatim: no trimming, no case folding, no leading-zero stripping. `"042"` and `"42"` are different users, and so are `"AbC"` and `"abc"`.
+- An invalid value returns 422 from request validation, or 400 `invalid_subject` from the Python library.
+- Responses always return `subject_id` as a JSON string, for example `"subject_id": "42"` or `"subject_id": "u_8f3k2"`. Clients that decode it as an integer must change (breaking change in 0.11.0). `subject_key` in level-package payloads is deprecated and equals `subject_id`.
+- Example: `POST /v1/redeem` with `{"subject_id": "u_8f3k2", "service_code": "report_export", "request_key": "export-7f3b"}` and later `X-Subject-ID: u_8f3k2`.
+- Existing integer IDs keep working: old clients sending `42` reach the same user and quota as before, and tokens for numeric IDs are unchanged, so a retry with the same `request_key` still returns the same token.
 
 ## Error format
 
@@ -88,7 +100,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | `invalid_limit` | 400 | `finite` needs `limit_value >= 0`; `unlimited` needs `limit_value` null. Also raised by `expire-sessions` when `--limit` is outside 1 to 5000. |
 | `invalid_period` | 400 | `period_kind` is not `day`, `week`, `month`, or `level_term`. |
 | `invalid_timezone` | 400 | `timezone` is not a known IANA zone. |
-| `invalid_subject` | 400 | Subject ID is not a positive integer up to 2^63-1. |
+| `invalid_subject` | 400 | Subject ID does not match the `subject_id` format. |
 | `invalid_effective_at` | 400 | `effective_at` is more than 5 seconds in the past. |
 | `invalid_expiry` | 400 | `expires_at` is not after `effective_at`. |
 | `term_change_requires_renewal` | 400 | Assignment changes the current term end without `renew_term: true`. |
@@ -210,7 +222,7 @@ Request body:
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `subject_id` | integer | Required. Strict JSON integer (a string such as `"42"` is rejected with 422), 1 to 9223372036854775807. |
+| `subject_id` | string or integer | Required. A string matching the `subject_id` format, or a positive JSON integer (converted to its decimal string). |
 | `service_id` | integer | Optional, > 0. Exactly one of `service_id` / `service_code` is required (otherwise 400). |
 | `service_code` | string | Optional, 1 to 64 characters. |
 | `request_key` | string | Optional for instant, required for durable. 1 to 128 characters. |
@@ -305,7 +317,7 @@ Admits one reported-usage operation. The subject must currently be under its Lim
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `subject_id` | integer | Required, strict integer, 1 to 9223372036854775807. |
+| `subject_id` | string or integer | Required. See `subject_id` format. |
 | `service_id` | integer | Required, > 0. The numeric Service ID (returned by `PUT .../services/{service_code}` and in the provisioned contract). Service codes are not accepted here. |
 | `request_key` | string | Optional, 1 to 128 characters. Generated randomly if omitted (then not idempotent). |
 
@@ -398,14 +410,14 @@ Role: `provider`.
 Lists tokens in the client's tenant and Service with status `admitted` that are unclaimed or claimed by this client. Use it to find reported-usage operations that were admitted but never settled.
 
 ```json
-[{"token_hash": "<64 hex>", "subject_id": 42, "admitted_at": "2026-10-08T08:15:02.123456Z"}]
+[{"token_hash": "<64 hex>", "subject_id": "42", "admitted_at": "2026-10-08T08:15:02.123456Z"}]
 ```
 
 The response contains the token hash, not the token. Match it against your own records by computing SHA-256 of the token string you hold.
 
 ### POST /v1/begin (legacy)
 
-Role: `provider`. Opens a durable session. Body: `subject_id` (strict integer), `service_code` (1 to 64), `request_key` (required, 1 to 128), `duration_seconds` (optional, 60 to 86400). The Service must be durable (`wrong_service_kind` otherwise). Response and idempotency are the same as durable `/v1/redeem`. New integrations should use `/v1/redeem`.
+Role: `provider`. Opens a durable session. Body: `subject_id` (see `subject_id` format), `service_code` (1 to 64), `request_key` (required, 1 to 128), `duration_seconds` (optional, 60 to 86400). The Service must be durable (`wrong_service_kind` otherwise). Response and idempotency are the same as durable `/v1/redeem`. New integrations should use `/v1/redeem`.
 
 ### POST /v1/close (legacy)
 
@@ -425,15 +437,15 @@ Send only users who hold a membership. A user without an active Level is rejecte
 | `expires_at` | datetime | no | ISO 8601 with offset. Omit for no end date. Must be in the future, else 400 `invalid_expiry`. |
 | `renew_term` | bool | no, default `false` | `true` for a real purchase or renewal: starts a new term and allows a new expiry. With `false`, a different expiry for an active member returns 400 `term_change_requires_renewal`. |
 
-The membership takes effect now. Response: `{"subject_id": 42, "member": {"level_code", "effective_at", "expires_at", "term_start", "term_end"}}`. Re-sending the current state is safe.
+The membership takes effect now. Response: `{"subject_id": "42", "member": {"level_code", "effective_at", "expires_at", "term_start", "term_end"}}`. Re-sending the current state is safe.
 
 ### GET /v1/members/{subject_id}
 
-Response: `{"subject_id": 42, "member": null}` when the user has no active Level, otherwise the same `member` object as above.
+Response: `{"subject_id": "42", "member": null}` when the user has no active Level, otherwise the same `member` object as above.
 
 ### DELETE /v1/members/{subject_id}
 
-Ends the active membership now by closing its record; history is kept. Response: `{"subject_id": 42, "ended": true}`, or `false` when nothing was active, so it is safe to repeat. A membership that reaches `expires_at` ends by itself.
+Ends the active membership now by closing its record; history is kept. Response: `{"subject_id": "42", "ended": true}`, or `false` when nothing was active, so it is safe to repeat. A membership that reaches `expires_at` ends by itself.
 
 ### POST /v1/members/batch
 
@@ -537,7 +549,7 @@ Response: `{"level_code": "...", "quota_code": "..."}`. The Level and Quota must
 
 ### PUT /v1/admin/tenants/{tenant}/subjects/{subject_id}/level
 
-`subject_id` in the path is a positive integer.
+`subject_id` in the path follows the `subject_id` format (for example `42` or `u_8f3k2`).
 
 | Field | Type | Default | Constraints |
 | --- | --- | --- | --- |
@@ -554,7 +566,7 @@ Term behavior:
 - If an Assignment is active and `renew_term` is false, the Level changes but the term is kept. `expires_at` must be omitted or equal to the current term end (`term_change_requires_renewal`, 400, otherwise). `level_term` usage carries over.
 - In both cases the previously active Assignment ends at `effective_at`.
 
-Response: `{"subject_id": 42, "level_code": "plus"}`.
+Response: `{"subject_id": "42", "level_code": "plus"}`.
 
 Example:
 
@@ -650,7 +662,7 @@ A Level can support multiple Quotas/Services. Management is admin authenticated 
 
 | Method | Path after `/v1/admin/tenants/{tenant}` | Behavior |
 | --- | --- | --- |
-| GET | `/subjects?limit=10&offset=0` | One row per user; optional exact `subject_id`, `level_code` filters |
+| GET | `/subjects?limit=10&offset=0` | One row per user, most recently assigned first; optional exact `subject_id`, `level_code` filters |
 | GET | `/subjects/{subject_id}/level-packages` | All unremoved packages, usage and revision; includes expired/pending packages |
 | PUT | `/subjects/{subject_id}/level-packages` | Atomically save the complete ordered list; absent packages are revoked |
 

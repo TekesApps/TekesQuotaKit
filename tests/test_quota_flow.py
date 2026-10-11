@@ -169,15 +169,16 @@ def test_token_scope_and_issue_retry(tmp_path):
     )
 
 
-def test_subject_id_is_numeric_and_positive(tmp_path):
+def test_subject_id_format_is_validated(tmp_path):
     kit, client, service_id = configured(tmp_path, mode="per_use", limit=2)
-    for bad_subject in ("42", 0, -1, 9223372036854775808):
+    bad_subjects = (0, -1, 9223372036854775808, True, 4.2, None, "", "0", "00", "-3")
+    for bad_subject in (*bad_subjects, "a b", "x" * 129, "用户", "a/b"):
         response = client.post(
             "/v1/redeem",
             headers=provider_headers(),
             json={"subject_id": bad_subject, "service_id": service_id},
         )
-        assert response.status_code == 422
+        assert response.status_code == 422, bad_subject
     token = redeem(client, service_id, "numeric-subject").json()["token"]
     assert (
         client.post(
@@ -185,15 +186,16 @@ def test_subject_id_is_numeric_and_positive(tmp_path):
         ).status_code
         == 403
     )
-    for bad_header in ("0", "abc", "9223372036854775808"):
+    for bad_header in ("0", "a b", "x" * 129):
         response = client.post(
             "/v1/token/status",
             headers={"Authorization": f"Bearer {PROVIDER_KEY}", "X-Subject-ID": bad_header},
             json={"token": token},
         )
         assert response.status_code == 422
-    with pytest.raises(QuotaError, match="positive integer"):
-        kit.assign("demo-tenant", "42", "regular")
+    for bad_subject in ("", "0", "a b", 4.2, True):
+        with pytest.raises(QuotaError, match="Subject ID must be"):
+            kit.assign("demo-tenant", bad_subject, "regular")
 
 
 def test_consumer_needs_one_call_to_redeem_per_use(tmp_path):

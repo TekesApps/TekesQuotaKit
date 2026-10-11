@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.mysql import DATETIME as MySQLDateTime
+from sqlalchemy.dialects.mysql import VARCHAR as MySQLVarchar
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -21,7 +22,10 @@ class Base(DeclarativeBase):
 
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
-SUBJECT_ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
+# User IDs are opaque, case-sensitive strings; MySQL must compare them byte for byte.
+SUBJECT_ID_TYPE = String(128).with_variant(
+    MySQLVarchar(128, charset="ascii", collation="ascii_bin"), "mysql"
+)
 UTC_DATETIME = MySQLDateTime(fsp=6).with_variant(DateTime(), "sqlite")
 
 
@@ -143,7 +147,7 @@ class Assignment(Base):
 
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     level_code: Mapped[str] = mapped_column(String(64), nullable=False)
     effective_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
@@ -167,7 +171,7 @@ class Usage(Base):
 
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
     period_start: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     period_end: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
@@ -183,7 +187,7 @@ class SubjectPackages(Base):
     __tablename__ = "tq_subject_packages"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     __table_args__ = (UniqueConstraint("tenant_id", "subject_id", name="uq_tq_subject_packages"),)
 
@@ -243,7 +247,7 @@ class Token(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     service_code: Mapped[str] = mapped_column(String(64), nullable=False)
     quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
     usage_key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -298,7 +302,7 @@ class Ledger(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     service_code: Mapped[str] = mapped_column(String(64), nullable=False)
     quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
     usage_key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -376,7 +380,7 @@ class PackageGrant(Base):
     __tablename__ = "tq_package_grants"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subject_id: Mapped[int] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
     grant_code: Mapped[str] = mapped_column(String(64), nullable=False)
     package_code: Mapped[str] = mapped_column(String(64), nullable=False)
     service_code: Mapped[str] = mapped_column(String(64), nullable=False)

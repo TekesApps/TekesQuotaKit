@@ -28,6 +28,8 @@ Service 通过自身的 `quota_code` 选择直接使用时扣哪种 Quota。组�
 | `tq_token_items` | `token_id`, `child_service_code` | 保存持续凭证的子项资格快照与每次 `use` 记录 |
 | `tq_ledger` | `token_hash`, `quota_code`, `delta_units` | 保存消费和退款流水 |
 
+`subject_id`（用户 ID）自 0.11.0 起是字符串（1 到 128 个字符，仅限 `A-Za-z0-9._:@-`，区分大小写，原样保存），例如 `"42"` 或 `"u_8f3k2"`；请求体中仍可传正整数，会转换为十进制字符串（`42` 即 `"42"`），响应一律返回字符串。`"042"` 与 `"42"` 是不同用户。同一个人必须始终使用同一个 ID；更换 ID 体系（例如从用户表 `id` 改为 openid）会产生另一个用户，额度不会合并。详见英文 API 文档的 `subject_id` format。
+
 每张表都有整数 `id` 主键。跨配置表使用稳定的 `*_code`；特别是 `tq_service_members` 中父、子两个 code 都指向 `tq_services`，并以 `(tenant_id, parent_service_code, child_service_code)` 保证同一组合内不重复。
 
 ## 一个子 Service 属于多个组合

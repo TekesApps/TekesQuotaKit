@@ -21,7 +21,7 @@ from .admin_auth import (
     cookie_path,
     cookie_secure,
 )
-from .core import MEMBERSHIP_ROLE, QuotaKit, utc_now
+from .core import MEMBERSHIP_ROLE, QuotaKit, SubjectId, normalize_subject, utc_now
 from .models import (
     Assignment,
     Client,
@@ -139,8 +139,9 @@ def _validated_base_url(value: str) -> str:
 # Both contracts carry the same rule, so the member-sync side and the Service side of a
 # business system are told the same thing: one user ID scheme, chosen by the business system.
 SUBJECT_ID_RULE = (
-    "One positive integer per person, chosen by the business system; member sync and every "
-    "Service request must send the same ID for the same person"
+    "One string ID per person (1 to 128 characters of A-Z a-z 0-9 . _ : @ -, case-sensitive; "
+    "a positive integer is accepted and read as its decimal string), chosen by the business "
+    "system; member sync and every Service request must send the same ID for the same person"
 )
 
 
@@ -157,19 +158,22 @@ def _user_id_rule(definition: str) -> list[str]:
         "",
         *[f"> {line}" for line in definition.splitlines()],
         "",
-        "`subject_id` must be a positive integer. If the definition names a string identifier,",
-        "such as a WeChat union_id or openid, send the integer ID the business system stores",
-        "for that person instead, and use that same integer everywhere.",
+        "`subject_id` is a string of 1 to 128 characters from `A-Z a-z 0-9 . _ : @ -`, such as",
+        "a user table ID or a WeChat union_id. A positive JSON integer is also accepted and read",
+        'as its decimal string, so `42` and `"42"` are the same user. Responses always return',
+        "`subject_id` as a string. Kit compares IDs exactly: case matters and leading zeros are",
+        'kept, so `"042"` and `"42"`, or `"AbC"` and `"abc"`, are different users.',
         "",
         "Rules:",
         "",
         "- Member registration and every Service request (redeem, issue, use, settle, balance)",
-        "  must send the same ID for the same person. Kit matches them by this number only.",
+        "  must send the same ID for the same person. Kit matches them by this ID only.",
         "- Use exactly one kind of ID. Do not mix in an openid, phone number, member card number,",
         "  or order ID in some places. Convert any other identifier to the chosen ID before",
         "  calling Kit.",
-        "- The ID must be a positive integer, stable for the life of the account, and never",
-        "  reused for another person.",
+        "- The ID must be stable for the life of the account and never reused for another",
+        "  person. Switching to another kind of ID later creates new users whose quota is not",
+        "  merged with the old ones.",
         "- If the member-sync side and the Service side are different services or teams, agree",
         "  on this ID before going live.",
         "",
@@ -264,7 +268,7 @@ def _client_guide(
         "",
         "| Value | Source |",
         "| --- | --- |",
-        "| `subject_id` | Positive integer user ID from the client backend's authentication |",
+        "| `subject_id` | User ID string (or positive integer) from the client backend's auth |",
         "| `X-Subject-ID` | The same authenticated user ID on use or balance requests |",
         "| session `request_key` | Stable business session ID; retries reuse the same key |",
         "| attempt `request_key` | Stable ID of one child attempt; a real repeat gets a new key |",
@@ -384,7 +388,7 @@ def _subject_id_definition(kit: QuotaKit, tenant: str, supplied: str | None) -> 
     if not stored:
         raise HTTPException(
             status_code=400,
-            detail="请填写用户 ID 定义：说明 subject_id 对应业务系统里的哪个整数 ID",
+            detail="请填写用户 ID 定义：说明 subject_id 对应业务系统里的哪个用户 ID",
         )
     return stored
 
@@ -483,7 +487,7 @@ def _membership_guide(
             {
                 "items": [
                     {
-                        "subject_id": 42,
+                        "subject_id": "42",
                         "level_code": levels[0]["level_code"] if levels else "member",
                         "expires_at": example_expiry,
                         "renew_term": True,
@@ -631,7 +635,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         "/v1/admin/tenants/{tenant}/subjects/{subject_id}/usage",
         dependencies=[Depends(authenticate)],
     )
-    def subject_usage(tenant: str, subject_id: int) -> dict:
+    def subject_usage(tenant: str, subject_id: SubjectId) -> dict:
         return kit.subject_usage(tenant, subject_id)
 
     @router.get("/v1/admin/tenants/{tenant}/overview", dependencies=[Depends(authenticate)])
@@ -712,7 +716,11 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                 raise HTTPException(status_code=400, detail=f"Cannot filter by {key}")
             column = model.__table__.columns[key]
             kind = column.type.python_type
-            if kind is int:
+            if key == "subject_id":
+                value = normalize_subject(raw)
+                if value is None:
+                    raise HTTPException(status_code=400, detail="Invalid subject_id")
+            elif kind is int:
                 if not raw.lstrip("-").isdigit():
                     raise HTTPException(status_code=400, detail=f"{key} must be an integer")
                 value = int(raw)

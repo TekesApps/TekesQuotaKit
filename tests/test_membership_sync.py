@@ -97,7 +97,7 @@ def test_members_drive_service_admission(tmp_path):
             json={"subject_id": 42, "service_code": "door_open", "request_key": key},
         )
 
-    assert client.get("/v1/members/42", headers=sync).json() == {"subject_id": 42, "member": None}
+    assert client.get("/v1/members/42", headers=sync).json() == {"subject_id": "42", "member": None}
     assert open_door("before").json()["code"] == "no_level"
 
     expiry = later(30)
@@ -120,7 +120,10 @@ def test_members_drive_service_admission(tmp_path):
     renewed = client.put("/v1/members/42", headers=sync, json={**longer, "renew_term": True})
     assert renewed.status_code == 200
 
-    assert client.delete("/v1/members/42", headers=sync).json() == {"subject_id": 42, "ended": True}
+    assert client.delete("/v1/members/42", headers=sync).json() == {
+        "subject_id": "42",
+        "ended": True,
+    }
     assert client.delete("/v1/members/42", headers=sync).json()["ended"] is False
     assert client.get("/v1/members/42", headers=sync).json()["member"] is None
     assert open_door("ended").json()["code"] == "no_level"
@@ -316,16 +319,17 @@ def test_subject_usage_summary_and_table_filters(tmp_path):
     }
     assert door_quota["period_kind"] == "week" and door_quota["period_end"].endswith("Z")
     nobody = client.get(f"/v1/admin/tenants/{TENANT}/subjects/7/usage", headers=ADMIN).json()
-    assert nobody == {"subject_id": 7, "member": None, "quotas": []}
+    assert nobody == {"subject_id": "7", "member": None, "quotas": []}
 
     def rows(table: str, **filters):
         params = {"tenant": TENANT, **filters}
         return client.get(f"/v1/admin/tables/{table}", headers=ADMIN, params=params)
 
     assert rows("tq_assignments").json()["total"] == 2
-    assert [r["subject_id"] for r in rows("tq_assignments", subject_id=43).json()["rows"]] == [43]
+    assert [r["subject_id"] for r in rows("tq_assignments", subject_id=43).json()["rows"]] == ["43"]
     assert rows("tq_tokens", subject_id=42, service_code="door_open").json()["total"] == 2
     assert rows("tq_tokens", subject_id=43).json()["total"] == 0
-    assert rows("tq_tokens", subject_id="abc").status_code == 400
+    assert rows("tq_tokens", subject_id="abc").json()["total"] == 0
+    assert rows("tq_tokens", subject_id="a b").status_code == 400
     assert rows("tq_tokens", token_hash="x").status_code == 400  # hidden column
     assert rows("tq_tokens", no_such_column="x").status_code == 400

@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
+from pydantic import BeforeValidator
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -36,8 +39,50 @@ from .models import (
 MAX_SUBJECT_ID = 9223372036854775807
 
 
-def _valid_subject(subject: int) -> bool:
-    return type(subject) is int and 0 < subject <= MAX_SUBJECT_ID
+SUBJECT_PATTERN = re.compile(r"[A-Za-z0-9._:@-]{1,128}")
+NUMERIC_SUBJECT = re.compile(r"-?[0-9]+")
+SUBJECT_RULE = (
+    "Subject ID must be a positive integer or 1 to 128 characters of A-Z a-z 0-9 . _ : @ -"
+)
+
+
+def normalize_subject(value: object) -> str | None:
+    """The stored form of a user ID, or None when it is not valid.
+
+    A positive integer becomes its decimal string, so 42 and "42" are the same user. A string
+    is kept exactly as sent: "042" and "42", or "AbC" and "abc", are different users.
+    """
+    if type(value) is int:
+        if not 0 < value <= MAX_SUBJECT_ID:
+            return None
+        value = str(value)
+    if type(value) is not str or not SUBJECT_PATTERN.fullmatch(value):
+        return None
+    if NUMERIC_SUBJECT.fullmatch(value) and int(value) <= 0:
+        return None
+    return value
+
+
+def _valid_subject(subject: object) -> bool:
+    return normalize_subject(subject) is not None
+
+
+def _subject(value: object) -> str:
+    subject = normalize_subject(value)
+    _require(subject is not None, "invalid_subject", SUBJECT_RULE, 400)
+    return subject
+
+
+def _subject_input(value: object) -> str:
+    subject = normalize_subject(value)
+    if subject is None:
+        raise ValueError(SUBJECT_RULE)
+    return subject
+
+
+# A user ID from a request body, path, header or query. Header and path values are already
+# strings; a JSON integer from older clients becomes its decimal string.
+SubjectId = Annotated[str, BeforeValidator(_subject_input)]
 
 
 MEMBERSHIP_ROLE = "membership"
@@ -406,14 +451,14 @@ class QuotaKit(LevelPackages):
     def put_package_grant(
         self,
         tenant: str,
-        subject: int,
+        subject: int | str,
         code: str,
         package: str,
         effective_at: datetime | None = None,
         expires_at: datetime | None = None,
         total_units: int | None = None,
     ) -> None:
-        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        subject = _subject(subject)
         _require(0 < len(code) <= 64, "invalid_code", "Grant code must be 1 to 64 characters", 400)
         now = utc_now()
         with self.sessions.begin() as db:
@@ -493,8 +538,8 @@ class QuotaKit(LevelPackages):
                 row.total_units = total_units
             row.effective_at, row.expires_at = start, expires_at
 
-    def revoke_package_grant(self, tenant: str, subject: int, code: str) -> None:
-        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+    def revoke_package_grant(self, tenant: str, subject: int | str, code: str) -> None:
+        subject = _subject(subject)
         with self.sessions.begin() as db:
             row = db.scalar(
                 select(PackageGrant)
@@ -512,7 +557,7 @@ class QuotaKit(LevelPackages):
     def _packages(
         db: Session,
         tenant: str,
-        subject: int,
+        subject: str,
         service: str,
         quota: str,
         now: datetime,
@@ -682,7 +727,7 @@ class QuotaKit(LevelPackages):
     def assign(
         self,
         tenant: str,
-        subject: int,
+        subject: int | str,
         level: str,
         expires_at: datetime | None = None,
         *,
@@ -691,9 +736,7 @@ class QuotaKit(LevelPackages):
     ) -> None:
         now = utc_now()
         effective_at = effective_at or now
-        _require(
-            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
-        )
+        subject = _subject(subject)
         _require(
             effective_at >= now - timedelta(seconds=5),
             "invalid_effective_at",
@@ -770,11 +813,9 @@ class QuotaKit(LevelPackages):
                 )
             )
 
-    def end_membership(self, tenant: str, subject: int) -> bool:
+    def end_membership(self, tenant: str, subject: int | str) -> bool:
         """Close the subject's current assignment now. Returns False if none was active."""
-        _require(
-            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
-        )
+        subject = _subject(subject)
         now = utc_now()
         with self.sessions.begin() as db:
             state = self._lock_subject(db, tenant, subject)
@@ -802,11 +843,9 @@ class QuotaKit(LevelPackages):
             state.revision += 1
             return True
 
-    def membership(self, tenant: str, subject: int) -> dict | None:
+    def membership(self, tenant: str, subject: int | str) -> dict | None:
         """The subject's current assignment, or None when the subject has no active Level."""
-        _require(
-            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
-        )
+        subject = _subject(subject)
         with self.sessions() as db:
             active = self._assignment(db, tenant, subject, utc_now(), required=False)
             if active is None:
@@ -832,7 +871,7 @@ class QuotaKit(LevelPackages):
     def _assignment(
         db: Session,
         tenant: str,
-        subject: int,
+        subject: str,
         now: datetime,
         *,
         lock: bool = False,
@@ -848,7 +887,7 @@ class QuotaKit(LevelPackages):
     def _policy(
         db: Session,
         tenant: str,
-        subject: int,
+        subject: str,
         service_code: str,
         now: datetime,
         *,
@@ -879,7 +918,7 @@ class QuotaKit(LevelPackages):
 
     @staticmethod
     def _usage(
-        db: Session, tenant: str, subject: int, quota: str, start: datetime, end: datetime
+        db: Session, tenant: str, subject: str, quota: str, start: datetime, end: datetime
     ) -> Usage:
         values = dict(
             tenant_id=tenant,
@@ -931,7 +970,7 @@ class QuotaKit(LevelPackages):
         self,
         db: Session,
         caller: Client,
-        subject: int,
+        subject: str,
         service: Service,
         request_key: str,
         now: datetime,
@@ -963,16 +1002,19 @@ class QuotaKit(LevelPackages):
         return token, row, inserted
 
     def _token_for_request(
-        self, caller: Client, subject: int, service_code: str, request_key: str
+        self, caller: Client, subject: str, service_code: str, request_key: str
     ) -> str:
+        # A canonical numeric ID hashes as the integer it was before IDs became strings, so a
+        # retried request keeps the token it was issued across the upgrade.
+        key = int(subject) if subject.isdigit() and str(int(subject)) == subject else subject
         identity = json.dumps(
-            [caller.tenant_id, caller.client_id, subject, service_code, request_key],
+            [caller.tenant_id, caller.client_id, key, service_code, request_key],
             separators=(",", ":"),
         )
         return "tq_" + hmac.new(self.secret, identity.encode(), hashlib.sha256).hexdigest()
 
     @staticmethod
-    def _validate_request(subject: int, service_id: int) -> None:
+    def _validate_request(subject: int | str, service_id: int) -> None:
         _require(
             _valid_subject(subject) and type(service_id) is int and service_id > 0,
             "missing_identity",
@@ -990,10 +1032,11 @@ class QuotaKit(LevelPackages):
         )
 
     def issue(
-        self, issuer: Client, subject: int, service_id: int, request_key: str | None = None
+        self, issuer: Client, subject: int | str, service_id: int, request_key: str | None = None
     ) -> dict:
         """Admit reported usage and return the token needed for later settlement."""
         self._validate_request(subject, service_id)
+        subject = normalize_subject(subject)
         self._validate_request_key(request_key)
         request_key = request_key or secrets.token_hex(16)
         now = utc_now()
@@ -1053,7 +1096,7 @@ class QuotaKit(LevelPackages):
     def redeem(
         self,
         provider: Client,
-        subject: int,
+        subject: int | str,
         service_id: int | str,
         request_key: str | None = None,
         duration_seconds: int | None = None,
@@ -1069,6 +1112,7 @@ class QuotaKit(LevelPackages):
             "Subject and Service required",
             400,
         )
+        subject = normalize_subject(subject)
         self._validate_request_key(request_key)
         _require(
             duration_seconds is None or 60 <= duration_seconds <= 86400,
@@ -1152,13 +1196,13 @@ class QuotaKit(LevelPackages):
     def begin(
         self,
         provider: Client,
-        subject: int,
+        subject: int | str,
         service_code: str,
         request_key: str,
         duration_seconds: int | None = None,
     ) -> dict:
         """Charge once and snapshot the allowed Services for durable use."""
-        _require(_valid_subject(subject), "invalid_subject", "Invalid subject", 400)
+        subject = _subject(subject)
         self._validate_request_key(request_key)
         _require(
             duration_seconds is None or 60 <= duration_seconds <= 86400,
@@ -1313,8 +1357,9 @@ class QuotaKit(LevelPackages):
             }
 
     def use(
-        self, token: str, provider: Client, subject: int, child_code: str, request_key: str
+        self, token: str, provider: Client, subject: int | str, child_code: str, request_key: str
     ) -> dict:
+        subject = _subject(subject)
         self._validate_request_key(request_key)
         _require(request_key is not None, "missing_request_key", "Child use needs request key", 400)
         now = utc_now()
@@ -1393,7 +1438,8 @@ class QuotaKit(LevelPackages):
                 "idempotent": False,
             }
 
-    def close(self, token: str, provider: Client, subject: int) -> dict:
+    def close(self, token: str, provider: Client, subject: int | str) -> dict:
+        subject = _subject(subject)
         now = utc_now()
         with self.sessions.begin() as db:
             row = db.scalar(
@@ -1517,7 +1563,8 @@ class QuotaKit(LevelPackages):
             self._ledger(db, row, "consume", consumed_units, now)
             return {"status": "settled", "consumed_units": consumed_units, "idempotent": False}
 
-    def refund(self, token: str, provider: Client, subject: int) -> dict:
+    def refund(self, token: str, provider: Client, subject: int | str) -> dict:
+        subject = _subject(subject)
         now = utc_now()
         with self.sessions.begin() as db:
             row = db.scalar(
@@ -1601,7 +1648,7 @@ class QuotaKit(LevelPackages):
         )
 
     @staticmethod
-    def _check_token(row: Token | None, provider: Client, subject: int | None = None) -> None:
+    def _check_token(row: Token | None, provider: Client, subject: str | None = None) -> None:
         _require(row is not None, "invalid_token", "Token not found", 404)
         _require(
             hmac.compare_digest(row.tenant_id, provider.tenant_id)
@@ -1612,7 +1659,8 @@ class QuotaKit(LevelPackages):
             403,
         )
 
-    def balance(self, caller: Client, subject: int) -> dict:
+    def balance(self, caller: Client, subject: int | str) -> dict:
+        subject = _subject(subject)
         now = utc_now()
         with self.sessions() as db:
             quota, limit, start, end = self._policy(
@@ -1667,15 +1715,13 @@ class QuotaKit(LevelPackages):
                 "period_end": end.isoformat() + "Z",
             }
 
-    def subject_usage(self, tenant: str, subject: int) -> dict:
+    def subject_usage(self, tenant: str, subject: int | str) -> dict:
         """One user's Level and, for every Quota that Level grants, this period's usage.
 
         Uses the same period and usage rules as admission, so the numbers match what a Service
         request would see right now.
         """
-        _require(
-            _valid_subject(subject), "invalid_subject", "Subject ID must be a positive integer", 400
-        )
+        subject = _subject(subject)
         now = utc_now()
         stamp = lambda value: value.isoformat() + "Z" if value else None  # noqa: E731
         with self.sessions() as db:
@@ -1786,7 +1832,8 @@ class QuotaKit(LevelPackages):
                 for row in rows
             ]
 
-    def token_status(self, token: str, provider: Client, subject: int) -> dict:
+    def token_status(self, token: str, provider: Client, subject: int | str) -> dict:
+        subject = _subject(subject)
         with self.sessions() as db:
             row = db.scalar(select(Token).where(Token.token_hash == self.key_hash(token)))
             self._check_token(row, provider, subject)
