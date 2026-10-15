@@ -257,3 +257,59 @@ test('edits ordered Level packages inside a user and retains independent binding
   await expect(user.getByRole('cell', { name: '2', exact: true })).toBeVisible();
   expect(await page.locator('body').evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBe(12.8);
 });
+
+test.describe('adding a user\'s Level packages', () => {
+  const url = (id: string) => `/user-quota/v1/admin/tenants/e2e-business/subjects/${id}/level-packages`;
+  const admin = { 'X-Admin-Request': '1' };
+  async function openAdd(page: Page) {
+    await page.goto('/user-quota/admin');
+    await page.getByLabel('账号').fill('e2e');
+    await page.getByLabel('密码').fill('e2e-console-password');
+    await page.getByRole('button', { name: /登录管理平台/ }).click();
+    await page.locator('.nav-btn').filter({ hasText: '用户等级' }).click();
+    await page.getByRole('button', { name: '设置用户额度包', exact: true }).click();
+    return page.getByRole('dialog');
+  }
+  async function addBasic(page: Page, dialog: ReturnType<Page['getByRole']>) {
+    await dialog.getByRole('button', { name: '添加等级额度包', exact: true }).click();
+    await dialog.getByLabel('等级额度包 1', { exact: true }).click();
+    await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'basic' }).click();
+  }
+
+  test('saves for a user whose empty record already exists, sending the current revision', async ({ page }) => {
+    const dialog = await openAdd(page);
+    const created = await page.request.put(url('empty-record'), { headers: admin, data: { revision: 0, packages: [] } });
+    expect(created.status(), await created.text()).toBe(200);
+    const existing = await page.request.get(url('empty-record'), { headers: admin }).then(r => r.json());
+    expect(existing).toMatchObject({ revision: 1, packages: [] });
+    await dialog.getByLabel('用户 ID').fill('empty-record');
+    await addBasic(page, dialog);
+    const put = page.waitForRequest(r => r.method() === 'PUT' && r.url().endsWith(url('empty-record')));
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await put).postDataJSON().revision).toBe(1);
+    await expect(dialog).toHaveCount(0);
+    const saved = await page.request.get(url('empty-record'), { headers: admin }).then(r => r.json());
+    expect(saved.packages).toHaveLength(1);
+  });
+
+  test('still refuses a user who already has packages', async ({ page }) => {
+    const dialog = await openAdd(page);
+    await dialog.getByLabel('用户 ID').fill('42');
+    await addBasic(page, dialog);
+    let puts = 0;
+    page.on('request', r => { if (r.method() === 'PUT') puts++; });
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('该用户已有记录，请在用户列表中编辑');
+    expect(puts).toBe(0);
+  });
+
+  test('requires at least one package before saving', async ({ page }) => {
+    const dialog = await openAdd(page);
+    await dialog.getByLabel('用户 ID').fill('no-packages');
+    let requests = 0;
+    page.on('request', r => { if (r.url().endsWith(url('no-packages'))) requests++; });
+    await dialog.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('请至少添加一份额度包');
+    expect(requests).toBe(0);
+  });
+});
