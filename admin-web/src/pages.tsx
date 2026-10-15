@@ -192,12 +192,15 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
     try {
       if (!validSubjectId(subjectId)) throw new Error('请填写有效用户 ID');
       if (packages.some(p => !p.level_code)) throw new Error('请选择每份包的等级');
+      let revision = version;
       if (subject == null) {
+        if (!packages.length) throw new Error('请至少添加一份额度包');
         const existing = await api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`);
-        if (existing.packages.length || existing.revision !== version) throw new Error('该用户已有记录，请在用户列表中编辑');
+        if (existing.packages.length) throw new Error('该用户已有记录，请在用户列表中编辑');
+        revision = existing.revision;
       }
       await put(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`, {
-        revision: version, packages: packages.map(p => ({ id: p.id, level_code: p.level_code, effective_at: p.effective_at, expires_at: p.expires_at })),
+        revision, packages: packages.map(p => ({ id: p.id, level_code: p.level_code, effective_at: p.effective_at, expires_at: p.expires_at })),
       });
       onChanged('已保存用户额度包与扣费顺序'); onClose();
     } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); } finally { setBusy(false); }
