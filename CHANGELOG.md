@@ -8,6 +8,16 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-15
+
+### Fixed
+
+- The admin console's 设置用户额度包 (add user packages) dialog no longer refuses a user who has
+  an empty package record (`revision` 1 or higher, no packages). It saves with the revision the
+  server returns, so such users, who do not appear in the user list, can be given packages again.
+- The add dialog now requires at least one package, so it no longer creates empty records that
+  bump the revision without adding the user to the user list.
+
 ## [0.11.0] - 2026-10-11
 
 ### Changed
