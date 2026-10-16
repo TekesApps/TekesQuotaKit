@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.10.1 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.12.3 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -348,3 +348,14 @@ After a restore, check that every table is back: `SHOW TABLES LIKE 'tq\_%'` shou
 - The provision endpoint returns a Markdown contract containing the plaintext client key. Move the key into the backend's secret store, then delete the file or keep it outside version control. Do not commit it.
 - Give each backend its own client with the narrowest role it needs (`issuer` or `provider` rather than `consumer` when one side suffices).
 - Use a database account limited to the schema that holds the `tq_` tables.
+
+### Adding configuration descriptions
+
+Before deploying description support to an existing 0.11.x database, back up all `tq_`
+tables, stop service and maintenance writers, and apply
+`migrations/add_config_descriptions_mysql.sql` once. It adds a nullable `VARCHAR(2000)`
+column to Services, Levels, Quotas and Limits. `init-schema` does not alter existing tables.
+Check all four columns before restarting; MySQL DDL commits per statement, so a partial
+migration must be resumed from the missing columns rather than rerun blindly. Existing
+codes, assignments, policies and accounting are unchanged. Rollback code can leave the
+nullable columns in place. Fresh installs use `create_tables_mysql.sql`.

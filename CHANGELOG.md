@@ -8,6 +8,29 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-10-16
+
+### Added
+
+- Editable descriptions (up to 2000 characters, including Chinese and newlines) on Services,
+  Levels, Quotas and Level Limits in the configuration API and admin console.
+- Additive MySQL migration `add_config_descriptions_mysql.sql`. Existing clients preserve
+  descriptions when omitting the field or sending null; an empty string clears it.
+- Level Limits show all Services using each Quota, with mouse-hover and keyboard-focus
+  help for Service descriptions. Limit notes are labeled 额度说明 to distinguish them.
+
+### Changed
+
+- Levels and Quotas can be edited in the console while immutable codes, Quota units and
+  metering modes stay locked.
+- Display limits with thousands separators; numeric editor values and stored limits stay
+  unchanged. Keep Service relationships in the Limit table without a duplicate overview.
+
+### Upgrade
+
+- Existing 0.11.x databases must apply the description migration before starting this
+  version. The columns are nullable metadata and do not change quota accounting.
+
 ## [0.11.1] - 2026-10-15
 
 ### Fixed

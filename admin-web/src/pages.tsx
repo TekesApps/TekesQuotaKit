@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Select } from 'antd';
+import { Select, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
-import { columnNames, type Row, text, time } from './types';
+import { columnNames, type Row, text, time, formatNumber } from './types';
 
 // `focus` narrows a page to matching rows, e.g. { level_code: 'member' } when jumping from a Level.
 export type PageProps = { tenant: string; revision: number; onChanged: (message: string) => void; focus?: Row; onNavigate?: (section: string, focus?: Row) => void };
@@ -14,7 +14,9 @@ const TIME_KEYS = new Set(['effective_at', 'expires_at', 'term_start', 'term_end
 function column(key: string, extra: Partial<Column> = {}): Column {
   return {
     key, title: columnNames[key] || key,
-    render: STATUS_KEYS.has(key) ? row => <Status value={row[key]} />
+    render: key === 'limit_value' ? row => formatNumber(row[key])
+      : key === 'description' ? row => <span className="description-text">{text(row[key])}</span>
+      : STATUS_KEYS.has(key) ? row => <Status value={row[key]} />
       : TIME_KEYS.has(key) ? row => time(row[key])
       : key.endsWith('_code') || key === 'client_id' ? row => row[key] == null ? '—' : <span className="code">{text(row[key])}</span>
       : undefined,
@@ -64,18 +66,25 @@ function ConfigPage({ spec, tenant, revision, onChanged, focus, onNavigate, sect
 const put = (path: string, body: unknown = {}) => api(path, 'PUT', body);
 const required = (value: unknown, label: string) => { if (value == null || value === '') throw new Error(`请填写${label}`); return String(value); };
 
+const descriptionField: Field = {
+  name: 'description', label: '中文说明', type: 'textarea', maxLength: 2000,
+  placeholder: '填写中文名称、适用范围或权益原文',
+  hint: '用于管理员核对，不参与额度计算。最多 2000 字。',
+};
+
 export function QuotasPage(props: PageProps) {
   return <ConfigPage {...props} spec={{
-    searchKeys: ['quota_code'], table: 'tq_quotas', title: 'Quota 配额', addLabel: '新增 Quota',
+    searchKeys: ['quota_code'], table: 'tq_quotas', title: 'Quota 配额', addLabel: '新增 Quota', editable: true,
     description: '计什么，例如开门次数、测量次数。这里不含数量，每个等级能用多少在“等级额度”里配置。创建后单位和计量方式不能修改。',
-    columns: ['quota_code', 'unit_code', 'metering_mode'].map(k => column(k)),
+    columns: ['quota_code', 'description', 'unit_code', 'metering_mode'].map(k => column(k)),
     defaults: { unit_code: 'use', metering_mode: 'per_use' },
     fields: [
+      descriptionField,
       { name: 'quota_code', label: 'Quota code', required: true, key: true, placeholder: 'measurement_count' },
-      { name: 'metering_mode', label: '计量方式', required: true, options: [option('per_use', '按次'), option('reported_usage', '按用量')] },
-      { name: 'unit_code', label: '单位', required: true, hint: '按次计量必须为 use' },
+      { name: 'metering_mode', label: '计量方式', required: true, key: true, options: [option('per_use', '按次'), option('reported_usage', '按用量')] },
+      { name: 'unit_code', label: '单位', required: true, key: true, hint: '按次计量必须为 use' },
     ],
-    save: (t, d) => put(`/tenants/${enc(t)}/quotas/${enc(required(d.quota_code, 'Quota code'))}`, { unit_code: d.unit_code, metering_mode: d.metering_mode }),
+    save: (t, d) => put(`/tenants/${enc(t)}/quotas/${enc(required(d.quota_code, 'Quota code'))}`, { unit_code: d.unit_code, metering_mode: d.metering_mode, description: d.description }),
   }} />;
 }
 
@@ -87,24 +96,44 @@ export function LevelsPage(props: PageProps) {
     return <button type="button" className="ghost" onClick={() => props.onNavigate?.('limits', { level_code: row.level_code })}>{limits.loading ? '…' : n ? `${n} 项配额 →` : '未配置，去添加 →'}</button>;
   } };
   return <ConfigPage {...props} spec={{
-    searchKeys: ['level_code'], table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level',
+    searchKeys: ['level_code'], table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level', editable: true,
     description: '会员等级。每个等级对各配额能用多少，在“等级额度”里配置；点击右侧的数量查看。',
-    columns: [column('level_code'), amounts],
-    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }],
-    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`),
+    columns: [column('level_code'), column('description'), amounts],
+    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, descriptionField],
+    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description }),
   }} />;
 }
 
 export function LimitsPage(props: PageProps) {
   const section = 'limits';
+  const services = useTable('tq_services', props.tenant, props.revision, 0, 200);
+  const serviceColumn: Column = {
+    key: '_services', title: '关联 Service（服务说明）', render: row => {
+      if (services.loading) return <span className="muted">加载中…</span>;
+      if (services.error) return <span className="error">服务加载失败：{services.error}</span>;
+      const related = services.rows.filter(service => service.quota_code === row.quota_code);
+      return <div className="related-services">{related.map(service => <div key={String(service.id)} className="related-service">
+        <span className="code">{text(service.service_code)}</span>
+        {service.description != null && service.description !== '' && <Tooltip trigger={['hover', 'focus']} title={<span className="description-text">{String(service.description)}</span>}>
+          <button type="button" className="ghost note-help" aria-label={`${service.service_code} 服务说明`}>ⓘ</button>
+        </Tooltip>}
+      </div>)}{services.total > services.rows.length ? <span className="muted">更多服务请在 Service 页核对</span> : !related.length && <span className="muted">未关联服务</span>}</div>;
+    },
+  };
+  const noteColumn = column('description', {
+    title: '额度说明', render: row => row.description ? <Tooltip trigger={['hover', 'focus']} title={<span className="description-text">{String(row.description)}</span>}>
+      <button type="button" className="ghost note-help" aria-label={`${row.level_code} ${row.quota_code} 额度说明`}>说明 ⓘ</button>
+    </Tooltip> : <span className="muted">—</span>,
+  });
   const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} section={section} spec={{
     searchKeys: ['level_code', 'quota_code'], table: 'tq_limits', title: '等级额度', addLabel: '新增等级额度', editable: true,
-    description: '所有用户额度包共用这里的 Level 额度定义，同一 Level 可配置多项 Quota。在用户编辑页发放等级包并调整扣费顺序。创建后周期和时区不能修改。',
-    columns: ['level_code', 'quota_code', 'limit_mode', 'limit_value', 'period_kind', 'timezone'].map(k => column(k)),
+    description: '所有用户额度包共用这里的 Level 额度定义，同一 Level 可配置多项 Quota。关联 Service 显示使用此配额的服务；悬停或聚焦 ⓘ 查看服务说明，额度说明记录本等级的权益规则。创建后周期和时区不能修改。',
+    columns: [column('level_code'), column('quota_code'), serviceColumn, noteColumn, ...['limit_mode', 'limit_value', 'period_kind', 'timezone'].map(k => column(k))],
     defaults: { limit_mode: 'finite', period_kind: 'month', timezone: 'Asia/Shanghai' },
     fields: [
+      { ...descriptionField, label: '额度说明', hint: '填写此等级对应配额的权益规则，不是 Service 自身的说明。最多 2000 字。' },
       { name: 'level_code', label: 'Level', required: true, key: true, options: levels },
       { name: 'quota_code', label: 'Quota', required: true, key: true, options: quotas },
       { name: 'limit_mode', label: '限额方式', required: true, options: [option('finite', '有限'), option('unlimited', '不限')] },
@@ -113,7 +142,7 @@ export function LimitsPage(props: PageProps) {
       { name: 'timezone', label: '时区', required: true },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level'))}/limits/${enc(required(d.quota_code, 'Quota'))}`,
-      { limit_mode: d.limit_mode, limit_value: d.limit_mode === 'unlimited' ? null : d.limit_value, period_kind: d.period_kind, timezone: d.timezone }),
+      { limit_mode: d.limit_mode, limit_value: d.limit_mode === 'unlimited' ? null : d.limit_value, period_kind: d.period_kind, timezone: d.timezone, description: d.description }),
   }} />;
 }
 
@@ -122,9 +151,10 @@ export function ServicesPage(props: PageProps) {
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
     description: '可使用的功能。组合 Service 的子项在“组合成员”里配置。',
-    columns: ['service_code', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)).concat(column('id', { title: 'service_id' })),
+    columns: ['service_code', 'description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)).concat(column('id', { title: 'service_id' })),
     defaults: { service_kind: 'atomic', redemption_mode: 'instant' },
     fields: [
+      descriptionField,
       { name: 'service_code', label: 'Service code', required: true, key: true, placeholder: 'measurement_session' },
       { name: 'quota_code', label: 'Quota', options: quotas, hint: '子项可留空' },
       { name: 'service_kind', label: '类型', required: true, options: [option('atomic', '原子'), option('composite', '组合')] },
@@ -133,7 +163,7 @@ export function ServicesPage(props: PageProps) {
       { name: 'session_ttl_seconds', label: '默认时长（秒）', type: 'number', min: 60, max: 86400, hint: '可留空' },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/services/${enc(required(d.service_code, 'Service code'))}`, {
-      quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
+      description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
       charge_units: d.charge_units, session_ttl_seconds: d.session_ttl_seconds,
     }),
   }} />;

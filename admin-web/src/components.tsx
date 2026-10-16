@@ -7,8 +7,8 @@ export type Column = { title: string; key: string; render?: (row: Row) => ReactN
 export type Option = { value: string; label: string };
 export type Field = {
   name: string; label: string; required?: boolean; key?: boolean; locked?: boolean;
-  type?: 'text' | 'number' | 'checkbox' | 'datetime';
-  options?: Option[]; placeholder?: string; hint?: string; min?: number; max?: number;
+  type?: 'text' | 'number' | 'checkbox' | 'datetime' | 'textarea';
+  options?: Option[]; placeholder?: string; hint?: string; min?: number; max?: number; maxLength?: number;
 };
 
 export function Status({ value }: { value: unknown }) {
@@ -139,6 +139,8 @@ export function Editor({ title, fields, initial = {}, editing = false, submitLab
       const value = values[field.name];
       const control = field.options
         ? <Select aria-label={field.label} disabled={locked} showSearch optionFilterProp="label" allowClear={!field.required} placeholder={field.placeholder || '请选择'} options={field.options} value={value === '' || value == null ? undefined : String(value)} onChange={v => set(field.name, v ?? '')} />
+        : field.type === 'textarea'
+          ? <textarea disabled={locked} value={String(value ?? '')} rows={4} maxLength={field.maxLength} placeholder={field.placeholder} onChange={e => set(field.name, e.target.value)} />
         : field.type === 'checkbox'
           ? <input type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={Boolean(value)} onChange={e => set(field.name, e.target.checked)} />
           : <input type={field.type === 'datetime' ? 'datetime-local' : field.type || 'text'} disabled={locked} value={String(value ?? '')} required={field.required} min={field.min} max={field.max} placeholder={field.placeholder} onChange={e => set(field.name, e.target.value)} />;

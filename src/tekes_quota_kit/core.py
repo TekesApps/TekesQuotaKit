@@ -267,7 +267,9 @@ class QuotaKit(LevelPackages):
                 db.expunge(service)
         return key, service
 
-    def put_quota(self, tenant: str, code: str, unit: str, mode: str) -> None:
+    def put_quota(
+        self, tenant: str, code: str, unit: str, mode: str, *, description: str | None = None
+    ) -> None:
         _require(
             mode in {"per_use", "reported_usage"}, "invalid_mode", "Invalid metering mode", 400
         )
@@ -291,6 +293,7 @@ class QuotaKit(LevelPackages):
                     "Quota unit and metering mode cannot be changed in place",
                 )
             row.unit_code, row.metering_mode = unit, mode
+            self._set_description(row, description)
 
     def put_service(
         self,
@@ -302,6 +305,7 @@ class QuotaKit(LevelPackages):
         redemption_mode: str | None = None,
         charge_units: int | None = None,
         session_ttl_seconds: int | None = None,
+        description: str | None = None,
     ) -> int:
         redemption_mode = redemption_mode or ("durable" if kind == "composite" else "instant")
         _require(
@@ -350,6 +354,7 @@ class QuotaKit(LevelPackages):
             row.redemption_mode = redemption_mode
             row.charge_units = charge_units
             row.session_ttl_seconds = session_ttl_seconds
+            self._set_description(row, description)
             db.flush()
             return row.id
 
@@ -406,10 +411,24 @@ class QuotaKit(LevelPackages):
             _require(row is not None, "unknown_member", "Service member not found", 404)
             db.delete(row)
 
-    def put_level(self, tenant: str, code: str) -> None:
+    @staticmethod
+    def _set_description(row: Level | Quota | Service | Limit, value: str | None) -> None:
+        if value is not None:
+            _require(
+                isinstance(value, str) and len(value) <= 2000,
+                "invalid_description",
+                "Description must be at most 2000 characters",
+                400,
+            )
+            row.description = value.strip() or None
+
+    def put_level(self, tenant: str, code: str, *, description: str | None = None) -> None:
         with self.sessions.begin() as db:
-            if self._level(db, tenant, code) is None:
-                db.add(Level(tenant_id=tenant, level_code=code))
+            row = self._level(db, tenant, code)
+            if row is None:
+                row = Level(tenant_id=tenant, level_code=code)
+                db.add(row)
+            self._set_description(row, description)
 
     def put_package(self, tenant: str, code: str, name: str, service: str, units: int) -> None:
         _require(
@@ -681,6 +700,8 @@ class QuotaKit(LevelPackages):
         value: int | None,
         period: str,
         timezone: str,
+        *,
+        description: str | None = None,
     ) -> None:
         _require(mode in {"finite", "unlimited"}, "invalid_limit_mode", "Invalid limit mode", 400)
         _require(
@@ -723,6 +744,7 @@ class QuotaKit(LevelPackages):
                 period,
                 timezone,
             )
+            self._set_description(row, description)
 
     def assign(
         self,

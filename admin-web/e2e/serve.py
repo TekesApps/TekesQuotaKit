@@ -24,6 +24,8 @@ kit.put_service(
     TENANT, "session", "visits", kind="composite", redemption_mode="durable", charge_units=1
 )
 kit.put_service(TENANT, "child", None)
+kit.put_service(TENANT, "ai_chat", "visits", description="健康管家与报告解读，共享每月AI额度")
+kit.put_service(TENANT, "medication_ai", "visits", description="用药提醒，使用同一份AI额度")
 kit.put_limit(TENANT, "basic", "visits", "finite", 5, "week", "Asia/Shanghai")
 kit.assign(TENANT, 42, "basic")
 inner = create_app(kit, "e2e-admin-key-000000000000000000000000000")
