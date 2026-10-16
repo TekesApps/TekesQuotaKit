@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Select, Switch, Tooltip } from 'antd';
 import { api, download, enc } from './api';
-import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
+import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option, type UpdateRow } from './components';
 import { columnNames, type Row, text, time, formatNumber } from './types';
 
 // `focus` narrows a page to matching rows, e.g. { level_code: 'member' } when jumping from a Level.
@@ -28,7 +28,7 @@ type Spec = {
   searchKeys?: string[];
   id?: string;
   table: string; title: string; description: ReactNode; addLabel: string;
-  columns: Column[]; fields: Field[]; defaults?: Row; editable?: boolean;
+  columns: Column[] | ((updateRow: UpdateRow) => Column[]); fields: Field[]; defaults?: Row; editable?: boolean;
   save: (tenant: string, data: Row) => Promise<unknown>;
   remove?: { label: string; confirm: (row: Row) => string; run: (tenant: string, row: Row) => Promise<unknown> };
 };
@@ -48,7 +48,8 @@ function ConfigPage({ spec, tenant, revision, onChanged, focus, onNavigate, sect
     ...(spec.editable ? [{ label: '编辑', action: () => setEditing(row) }] : []),
     ...(spec.remove ? [{ label: spec.remove.label, danger: true, action: () => void remove(row) }] : []),
   ]} /> };
-  const columns = spec.editable || spec.remove ? [...spec.columns, actions] : spec.columns;
+  const configuredColumns = typeof spec.columns === 'function' ? spec.columns(result.updateRow) : spec.columns;
+  const columns = spec.editable || spec.remove ? [...configuredColumns, actions] : configuredColumns;
   return <section id={spec.id} className="panel">
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}</p></div><button onClick={() => setCreating(true)}>{spec.addLabel}</button></div>
     {error && <div className="error-box" role="alert">{error}</div>}
@@ -146,13 +147,13 @@ export function LimitsPage(props: PageProps) {
   }} />;
 }
 
-function ServiceEnabledSwitch({ row, tenant, onChanged }: { row: Row; tenant: string; onChanged: PageProps['onChanged'] }) {
+function ServiceEnabledSwitch({ row, tenant, onSaved }: { row: Row; tenant: string; onSaved: (enabled: boolean) => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   return <div><Switch checked={row.enabled === true} loading={busy} checkedChildren="启用" unCheckedChildren="禁用" aria-label={`${String(row.service_code)} 启用状态`} onChange={async enabled => {
     setBusy(true); setError('');
     try {
-      await api(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { enabled });
-      onChanged(enabled ? '服务已启用' : '服务已禁用');
+      const saved = await api<{ enabled: boolean }>(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { enabled });
+      onSaved(saved.enabled);
     } catch (e) { setError(e instanceof Error ? e.message : '状态修改失败'); } finally { setBusy(false); }
   }} />{error && <div role="alert" className="error">{error}</div>}</div>;
 }
@@ -162,7 +163,7 @@ export function ServicesPage(props: PageProps) {
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
     description: '关闭尚未开放的服务后，接口明确返回 service_disabled，权益查询标记 enabled: false。已有服务的结算、退款仍可完成。组合 Service 的子项在“组合成员”里配置。',
-    columns: [column('service_code'), column('enabled', { render: row => <ServiceEnabledSwitch row={row} tenant={props.tenant} onChanged={props.onChanged} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
+    columns: updateRow => [column('service_code'), column('enabled', { render: row => <ServiceEnabledSwitch row={row} tenant={props.tenant} onSaved={enabled => updateRow(row.id, { enabled })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
     defaults: { service_kind: 'atomic', redemption_mode: 'instant', enabled: true },
     fields: [
       { name: 'enabled', label: '启用服务', type: 'checkbox', hint: '关闭后禁止新调用；权益查询返回禁用状态，小程序应只展示已启用服务。' },
