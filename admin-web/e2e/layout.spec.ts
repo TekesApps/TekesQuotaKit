@@ -511,3 +511,29 @@ test('usage formats thousands, current caps and consumed percentages including u
   await expect(summary).toContainText('500,000');
   await expect(summary).toContainText('30.4%');
 });
+
+
+test('usage defaults to highest consumption and can switch order while keeping filters', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: '用量' }).click();
+  const table = page.locator('.panel > .table-wrap');
+  const ids = table.locator('tbody tr td:first-child');
+  const order = page.getByRole('combobox', { name: '消耗百分比排序' });
+  await expect(page.locator('.toolbar')).toContainText('从高到低');
+  await expect(ids).toHaveText(['10142', '10139', '10141', '10140']);
+  // Unknown percentages stay last in both directions; a Quota filter survives the change.
+  const quota = page.locator('.search-bar label').filter({ hasText: 'Quota 配额' }).locator('input');
+  await quota.fill('ai_tokens');
+  await page.locator('.search-bar').getByRole('button', { name: '查询', exact: true }).click();
+  await order.click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: '从低到高' }).click();
+  await expect(ids).toHaveText(['10139', '10142', '10141', '10140']);
+  await expect(quota).toHaveValue('ai_tokens');
+  await order.click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: '从高到低' }).click();
+  await expect(ids).toHaveText(['10142', '10139', '10141', '10140']);
+  await page.screenshot({ path: 'test-results/usage-sorted.png', fullPage: true });
+});
