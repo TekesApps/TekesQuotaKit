@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Select, Switch, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option, type UpdateRow } from './components';
-import { columnNames, type Row, text, time, formatNumber } from './types';
+import { columnNames, type Row, text, time, formatNumber, formatPercent } from './types';
 
 // `focus` narrows a page to matching rows, e.g. { level_code: 'member' } when jumping from a Level.
 export type PageProps = { tenant: string; revision: number; onChanged: (message: string) => void; focus?: Row; onNavigate?: (section: string, focus?: Row) => void };
@@ -14,7 +14,7 @@ const TIME_KEYS = new Set(['effective_at', 'expires_at', 'term_start', 'term_end
 function column(key: string, extra: Partial<Column> = {}): Column {
   return {
     key, title: columnNames[key] || key,
-    render: key === 'limit_value' ? row => formatNumber(row[key])
+    render: ['limit_value', 'used_units'].includes(key) ? row => formatNumber(row[key])
       : key === 'description' ? row => <span className="description-text">{text(row[key])}</span>
       : STATUS_KEYS.has(key) ? row => <Status value={row[key]} />
       : TIME_KEYS.has(key) ? row => time(row[key])
@@ -419,7 +419,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
 }
 
 const DATA_TABLES: Record<string, { table: string; title: string; description: string; columns: string[]; searchKeys: string[] }> = {
-  usage: { searchKeys: ['subject_id', 'quota_code'], table: 'tq_usage', title: '用量', description: '每个用户在当前周期对各配额已用的数量。', columns: ['subject_id', 'quota_code', 'used_units', 'period_start', 'period_end'] },
+  usage: { searchKeys: ['subject_id', 'quota_code'], table: 'tq_usage', title: '用量', description: '每个用户对各配额已用的数量。上限与消耗百分比按主会员当前周期额度计算；历史周期或无有效额度时显示 —，不限额不计算百分比。', columns: ['subject_id', 'quota_code', 'used_units', 'limit_value', 'consumed_percent', 'period_start', 'period_end'] },
   tokens: { searchKeys: ['subject_id', 'service_code', 'request_key'], table: 'tq_tokens', title: '凭证', description: '每次准入或兑现生成的凭证与扣费状态。', columns: ['id', 'subject_id', 'service_code', 'quota_code', 'status', 'consumed_units', 'session_status', 'admitted_at', 'session_expires_at', 'request_key'] },
   token_items: { searchKeys: ['token_id', 'child_service_code'], table: 'tq_token_items', title: '场次明细', description: '持续凭证的子项资格（序号 0）与每次使用记录。', columns: ['token_id', 'child_service_code', 'slot_no', 'status', 'max_uses', 'used_at', 'request_key'] },
   ledger: { searchKeys: ['subject_id', 'service_code', 'quota_code'], table: 'tq_ledger', title: '流水', description: '扣减与退还的不可变账本。', columns: ['created_at', 'subject_id', 'service_code', 'quota_code', 'event_type', 'delta_units', 'unit_code'] },
@@ -434,7 +434,9 @@ export function DataPage({ kind, tenant, revision, focus }: PageProps & { kind: 
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}只读。{kind === 'usage' ? '按用户 ID 查询时，会显示该用户每个配额本周期的使用情况。' : ''}</p></div></div>
     <SearchBar keys={spec.searchKeys} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
     {subject && <SubjectUsage tenant={tenant} subject={subject} revision={revision} />}
-    <Table columns={spec.columns.map(k => column(k))} data={result.rows} loading={result.loading} error={result.error} />
+    <Table columns={spec.columns.map(k => kind === 'usage' && k === 'limit_value' ? column(k, {
+      title: '上限', render: r => r.limit_status !== 'current' ? '—' : r.limit_mode === 'unlimited' ? '不限' : formatNumber(r.limit_value),
+    }) : k === 'consumed_percent' ? column(k, { render: r => r.limit_status === 'current' && r.limit_mode === 'finite' ? formatPercent(r.used_units, r.limit_value) : '—' }) : column(k))} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
   </section>;
 }
@@ -458,10 +460,11 @@ function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: 
   const columns: Column[] = [
     column('quota_code'),
     { key: 'services', title: '服务', render: r => (r.services as string[]).join('、') || '—' },
-    { key: 'limit', title: '额度', render: r => r.limit_mode === 'unlimited' ? '不限' : text(r.limit) },
-    { key: 'used', title: '主包本周期已用', render: r => r.error ? <span className="error">{text(r.error)}</span> : text(r.used) },
-    { key: 'remaining', title: '主包剩余', render: r => r.remaining === null ? '不限' : text(r.remaining) },
-    { key: 'service_balances', title: '副包剩余（按服务）', render: r => (r.service_balances as { service_code: string; auxiliary_remaining: number }[] || []).map(b => `${b.service_code}：${b.auxiliary_remaining}`).join('、') || '—' },
+    { key: 'limit', title: '上限', render: r => r.limit_mode === 'unlimited' ? '不限' : formatNumber(r.limit) },
+    { key: 'used', title: '主包本周期已用', render: r => r.error ? <span className="error">{text(r.error)}</span> : formatNumber(r.used) },
+    { key: 'consumed_percent', title: '消耗百分比', render: r => r.error ? '—' : formatPercent(r.used, r.limit) },
+    { key: 'remaining', title: '主包剩余', render: r => r.remaining === null ? '不限' : formatNumber(r.remaining) },
+    { key: 'service_balances', title: '副包剩余（按服务）', render: r => (r.service_balances as { service_code: string; auxiliary_remaining: number }[] || []).map(b => `${b.service_code}：${formatNumber(b.auxiliary_remaining)}`).join('、') || '—' },
     column('period_kind'),
     { key: 'period_end', title: '重置时间', render: r => time(r.period_end) },
   ];

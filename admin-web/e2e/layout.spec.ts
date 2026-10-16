@@ -481,3 +481,33 @@ test('failed switch save keeps its previous value and retries without refreshing
   await toggle.click();
   await expect(toggle).toBeChecked();
 });
+
+
+test('usage formats thousands, current caps and consumed percentages including unlimited and zero', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: '用量' }).click();
+  const table = page.locator('.panel > .table-wrap');
+  await expect(table.getByRole('columnheader', { name: '上限', exact: true })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: '消耗百分比', exact: true })).toBeVisible();
+  for (const [id, used, cap, percent] of [
+    ['10139', '152,159', '500,000', '30.4%'],
+    ['10140', '152,159', '不限', '—'],
+    ['10141', '0', '0', '—'],
+    ['10142', '600,000', '500,000', '120.0%'],
+  ]) {
+    const row = table.getByRole('row').filter({ has: page.getByRole('cell', { name: id, exact: true }) });
+    await expect(row.locator('td').nth(2)).toHaveText(used);
+    await expect(row.locator('td').nth(3)).toHaveText(cap);
+    await expect(row.locator('td').nth(4)).toHaveText(percent);
+  }
+  await page.screenshot({ path: 'test-results/usage-limits.png', fullPage: true });
+  await page.locator('.search-bar label').filter({ hasText: '用户 ID' }).locator('input').fill('10139');
+  await page.locator('.search-bar').getByRole('button', { name: '查询', exact: true }).click();
+  const summary = page.getByRole('region', { name: '用户 10139 的配额使用情况' });
+  await expect(summary).toContainText('152,159');
+  await expect(summary).toContainText('500,000');
+  await expect(summary).toContainText('30.4%');
+});
