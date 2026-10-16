@@ -8,6 +8,22 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-16
+
+### Added
+
+- Service availability switch in the admin console, plus strict boolean `enabled`
+  configuration and a status-only PATCH endpoint. Omitted/null values in existing
+  PUT integrations preserve the status; new and migrated Services default to enabled.
+- Disabled Services reject admission, redemption, balance queries and child use with
+  HTTP 403 `service_disabled`, distinct from HTTP 404 `unknown_service`. Settlement,
+  refunds, closing and token audit remain available under their existing rules.
+- Membership clients can query `/v1/members/{subject_id}/usage` for user entitlements.
+  Quota `service_details` includes disabled status; `services` and `service_balances`
+  contain enabled Services only, preserving independent siblings sharing a Quota.
+- Additive MySQL migration `add_service_enabled_mysql.sql`, required before upgrade.
+
+
 ## [0.12.3] - 2026-10-16
 
 ### Added

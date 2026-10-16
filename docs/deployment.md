@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.12.3 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.13.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -97,6 +97,17 @@ The web admin sign-in adds three tables (`tq_admin_users`, `tq_admin_sessions`, 
 ### Upgrading a 0.4.x or 0.5.x install
 
 0.6.0 adds one nullable column, `tq_tenants.subject_id_definition`. `init-schema` cannot add columns, so apply `migrations/add_subject_id_definition_mysql.sql` once **before** starting 0.6.0; 0.6.0 fails to read business systems without it. The column is nullable, so the running 0.4.x or 0.5.x keeps working after it is added. The next credential issued for each business system asks for the user ID definition.
+
+### Upgrading to 0.13.0
+
+Before starting the new code, apply `migrations/add_service_enabled_mysql.sql` once.
+It adds `tq_services.enabled` (non-null boolean, default true), preserving existing
+Service behavior. `init-schema` does not add columns to existing tables. The old
+application remains compatible with the additional column during rollback.
+
+Use the Service page's switch to disable functions that are not ready. This changes
+availability for every Level, including VIP, without changing quotas, clients or
+memberships. Existing service accounting may still be settled/refunded/closed.
 
 ### Web admin accounts
 

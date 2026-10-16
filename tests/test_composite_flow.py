@@ -99,7 +99,7 @@ def test_durable_redeem_snapshots_children_and_charges_once(tmp_path):
     assert use(client, token).json()["idempotent"] is True
     for attempt in range(2, 22):
         assert use(client, token, key=f"bp-{attempt}").json()["slot_no"] == attempt
-    assert use(client, token, "not_in_session", "unknown").json()["code"] == "child_unavailable"
+    assert use(client, token, "not_in_session", "unknown").json()["code"] == "unknown_service"
     assert use(client, token, "blood_oxygen", "oxygen-1").status_code == 200
     assert kit.balance(kit.client(CLIENT_KEY, "issuer"), 42)["used"] == 1
     assert (

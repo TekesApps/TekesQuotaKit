@@ -116,6 +116,19 @@ Each step below can be done in the web admin. Scripts call the same endpoints wi
 
 See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a deployment checklist.
 
+## Service availability
+
+Each Service has an `enabled` flag (default true). Toggle it in the console to close
+functions that are not ready. Disabled admission and balance queries return HTTP 403
+`service_disabled` with `enabled: false`; a missing Service returns 404 `unknown_service`.
+Existing accounting can still settle, refund or close under its original rules.
+
+A membership backend can call `GET /v1/members/{subject_id}/usage` to build the user's
+entitlement view. Each Quota's `service_details` lists service IDs, codes, descriptions
+and `enabled`; display only enabled entries. The existing `services` code list and
+`service_balances` already exclude disabled services. Shared quota limits remain shared.
+Client keys belong in the backend, never in a miniapp. See [the availability contract](docs/api.md#service-availability-since-0130).
+
 ## Web admin
 
 `GET /admin` serves a React console (source in [admin-web/](admin-web/)). It opens on a sign-in page; operators sign in with a web admin account created by `tekes-quota-kit admin-user add`. After sign-in, a collapsible sidebar groups the pages:

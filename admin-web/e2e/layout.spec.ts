@@ -391,3 +391,31 @@ test('large limits use thousands separators while editors keep numeric values', 
   await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
   await expect(limit).toHaveValue('1000000');
 });
+
+
+test('service switch persists and editing notes cannot silently re-enable it', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
+  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
+  await expect(toggle).toBeChecked();
+  const before = await toggle.boundingBox();
+  expect(before!.height).toBe(22);
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await page.reload();
+  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
+  await expect(toggle).not.toBeChecked();
+  const row = page.locator('tbody tr').filter({ has: toggle });
+  await row.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  await expect(page.getByLabel('启用服务', { exact: false })).not.toBeChecked();
+  await page.locator('.drawer-panel').getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  await expect(toggle).not.toBeChecked();
+  await page.screenshot({ path: 'test-results/service-disabled.png', fullPage: true });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Select, Tooltip } from 'antd';
+import { Select, Switch, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option } from './components';
 import { columnNames, type Row, text, time, formatNumber } from './types';
@@ -146,14 +146,26 @@ export function LimitsPage(props: PageProps) {
   }} />;
 }
 
+function ServiceEnabledSwitch({ row, tenant, onChanged }: { row: Row; tenant: string; onChanged: PageProps['onChanged'] }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  return <div><Switch checked={row.enabled === true} loading={busy} checkedChildren="启用" unCheckedChildren="禁用" aria-label={`${String(row.service_code)} 启用状态`} onChange={async enabled => {
+    setBusy(true); setError('');
+    try {
+      await api(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { enabled });
+      onChanged(enabled ? '服务已启用' : '服务已禁用');
+    } catch (e) { setError(e instanceof Error ? e.message : '状态修改失败'); } finally { setBusy(false); }
+  }} />{error && <div role="alert" className="error">{error}</div>}</div>;
+}
+
 export function ServicesPage(props: PageProps) {
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
-    description: '可使用的功能。组合 Service 的子项在“组合成员”里配置。',
-    columns: ['service_code', 'description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)).concat(column('id', { title: 'service_id' })),
-    defaults: { service_kind: 'atomic', redemption_mode: 'instant' },
+    description: '关闭尚未开放的服务后，接口明确返回 service_disabled，权益查询标记 enabled: false。已有服务的结算、退款仍可完成。组合 Service 的子项在“组合成员”里配置。',
+    columns: [column('service_code'), column('enabled', { render: row => <ServiceEnabledSwitch row={row} tenant={props.tenant} onChanged={props.onChanged} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
+    defaults: { service_kind: 'atomic', redemption_mode: 'instant', enabled: true },
     fields: [
+      { name: 'enabled', label: '启用服务', type: 'checkbox', hint: '关闭后禁止新调用；权益查询返回禁用状态，小程序应只展示已启用服务。' },
       descriptionField,
       { name: 'service_code', label: 'Service code', required: true, key: true, placeholder: 'measurement_session' },
       { name: 'quota_code', label: 'Quota', options: quotas, hint: '子项可留空' },
@@ -163,7 +175,7 @@ export function ServicesPage(props: PageProps) {
       { name: 'session_ttl_seconds', label: '默认时长（秒）', type: 'number', min: 60, max: 86400, hint: '可留空' },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/services/${enc(required(d.service_code, 'Service code'))}`, {
-      description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
+      enabled: d.enabled, description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
       charge_units: d.charge_units, session_ttl_seconds: d.session_ttl_seconds,
     }),
   }} />;

@@ -146,6 +146,7 @@ CREATE TABLE tq_services (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
 	service_code VARCHAR(64) NOT NULL,
+	enabled BOOL NOT NULL DEFAULT '1',
 	quota_code VARCHAR(64),
 	service_kind VARCHAR(16) NOT NULL,
 	redemption_mode VARCHAR(16) NOT NULL,
