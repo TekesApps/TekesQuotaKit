@@ -4,6 +4,7 @@ import { api, enc } from './api';
 import { type Row, statusNames, text } from './types';
 
 export type Column = { title: string; key: string; render?: (row: Row) => ReactNode };
+export type UpdateRow = (id: unknown, changes: Row) => void;
 export type Option = { value: string; label: string };
 export type Field = {
   name: string; label: string; required?: boolean; key?: boolean; locked?: boolean;
@@ -48,7 +49,10 @@ export function useTable(table: string, tenant: string, revision: number, offset
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [table, tenant, revision, offset, limit, filterQuery]);
-  return { rows: data?.rows ?? [], total: data?.total ?? 0, loading, error };
+  const updateRow: UpdateRow = (id, changes) => setData(current => current ? {
+    ...current, rows: current.rows.map(row => row.id === id ? { ...row, ...changes } : row),
+  } : current);
+  return { rows: data?.rows ?? [], total: data?.total ?? 0, loading, error, updateRow };
 }
 
 /** Codes from a config table, for select options in editors. */

@@ -403,8 +403,24 @@ test('service switch persists and editing notes cannot silently re-enable it', a
   await expect(toggle).toBeChecked();
   const before = await toggle.boundingBox();
   expect(before!.height).toBe(22);
+  const originalRow = await toggle.locator('xpath=ancestor::tr').elementHandle();
+  const originalSwitch = await toggle.elementHandle();
+  const reads: string[] = [];
+  page.on('request', request => { if (request.method() === 'GET' && request.url().includes('/v1/admin/')) reads.push(request.url()); });
+  await toggle.scrollIntoViewIfNeeded();
+  const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
   await toggle.click();
   await expect(toggle).not.toBeChecked();
+  await expect(toggle).toBeEnabled();
+  expect(reads).toEqual([]);
+  expect(await originalRow!.evaluate(el => el.isConnected)).toBe(true);
+  expect(await originalSwitch!.evaluate(el => el.isConnected)).toBe(true);
+  expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(scroll);
+  // Opening the editor immediately must read the row's new state, without a refresh.
+  await toggle.locator('xpath=ancestor::tr').getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  await expect(page.getByLabel('启用服务', { exact: false })).not.toBeChecked();
+  await page.locator('.drawer-head button').click();
   await page.reload();
   await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
   await expect(toggle).not.toBeChecked();
@@ -416,6 +432,52 @@ test('service switch persists and editing notes cannot silently re-enable it', a
   await expect(page.locator('.drawer-panel')).toHaveCount(0);
   await expect(toggle).not.toBeChecked();
   await page.screenshot({ path: 'test-results/service-disabled.png', fullPage: true });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+});
+
+
+test('enabled and disabled switch text and handle are vertically centered', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
+  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
+  for (const enabled of [false, true]) {
+    await toggle.click();
+    await expect(toggle).toBeChecked({ checked: enabled });
+    await expect.poll(() => toggle.evaluate(el => {
+      const checked = el.getAttribute('aria-checked') === 'true';
+      const track = el.getBoundingClientRect();
+      const label = el.querySelector(checked ? '.ant-switch-inner-checked' : '.ant-switch-inner-unchecked')!;
+      const range = document.createRange(); range.selectNodeContents(label);
+      const text = range.getBoundingClientRect();
+      const handle = el.querySelector('.ant-switch-handle')!.getBoundingClientRect();
+      const center = (track.top + track.bottom) / 2;
+      return Math.max(Math.abs((text.top + text.bottom) / 2 - center), Math.abs((handle.top + handle.bottom) / 2 - center));
+    })).toBeLessThanOrEqual(1);
+  }
+});
+
+
+test('failed switch save keeps its previous value and retries without refreshing', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
+  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
+  await expect(toggle).toBeChecked();
+  await page.route('**/services/medication_ai/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: '测试保存失败' }) }));
+  await toggle.click();
+  await expect(page.getByRole('alert')).toContainText('测试保存失败');
+  await expect(toggle).toBeChecked();
+  await expect(toggle).toBeEnabled();
+  await page.unroute('**/services/medication_ai/status');
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await toggle.click();
   await expect(toggle).toBeChecked();
 });

@@ -8,6 +8,17 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-16
+
+### Fixed
+
+- Service availability switches update only their own row after a successful save,
+  preserving table contents, scroll position and editor state without refetching the
+  page, overview, tenant list or unrelated configuration.
+- Align switch labels and handles vertically by using the same 22px height for the
+  component's track and inner layout, including the disabled label.
+
+
 ## [0.13.0] - 2026-10-16
 
 ### Added
