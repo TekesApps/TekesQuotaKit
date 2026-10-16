@@ -5,6 +5,9 @@ export const text = (value: unknown) => value == null || value === '' ? '—' : 
 
 export const formatNumber = (value: unknown) => typeof value === 'number' ? value.toLocaleString('zh-CN') : text(value);
 
+export const formatPercent = (used: unknown, limit: unknown) => typeof used === 'number' && typeof limit === 'number' && limit > 0
+  ? (used / limit).toLocaleString('zh-CN', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
+
 /** API timestamps are naive UTC ("2026-10-08T06:00:00Z"); show them in the viewer's zone. */
 export const time = (value: unknown) => {
   if (!value) return '—';
@@ -27,6 +30,7 @@ export const statusNames: Record<string, string> = {
 /** Column titles shared by every table view. */
 export const columnNames: Record<string, string> = {
   enabled: '启用状态',
+  consumed_percent: '消耗百分比',
   description: '中文说明',
   id: 'ID', tenant_id: '租户', client_id: 'Client ID', role: '角色',
   quota_code: 'Quota 配额', unit_code: '单位', metering_mode: '计量方式',

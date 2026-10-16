@@ -9,8 +9,8 @@ import uvicorn
 
 from tekes_quota_kit.admin_auth import AdminAccounts
 from tekes_quota_kit.api import create_app
-from tekes_quota_kit.core import QuotaKit, utc_now
-from tekes_quota_kit.models import Base, Tenant
+from tekes_quota_kit.core import QuotaKit, _period, utc_now
+from tekes_quota_kit.models import Base, Tenant, Usage
 
 TENANT = "e2e-business"
 kit = QuotaKit(f"sqlite:///{sys.argv[1]}", "e2e-token-secret-0000000000000000000000")
@@ -28,6 +28,37 @@ kit.put_service(TENANT, "ai_chat", "visits", description="健康管家与报告�
 kit.put_service(TENANT, "medication_ai", "visits", description="用药提醒，使用同一份AI额度")
 kit.put_limit(TENANT, "basic", "visits", "finite", 5, "week", "Asia/Shanghai")
 kit.assign(TENANT, 42, "basic")
+kit.put_quota(TENANT, "ai_tokens", "token", "reported_usage")
+for subject, level, cap, used in [
+    ("10139", "usage-plan", 500000, 152159),
+    ("10140", "usage-unlimited", None, 152159),
+    ("10141", "usage-zero", 0, 0),
+    ("10142", "usage-plan", 500000, 600000),
+]:
+    kit.put_level(TENANT, level)
+    kit.put_limit(
+        TENANT,
+        level,
+        "ai_tokens",
+        "unlimited" if cap is None else "finite",
+        cap,
+        "month",
+        "Asia/Shanghai",
+    )
+    kit.assign(TENANT, subject, level)
+    with kit.sessions.begin() as db:
+        assignment = kit._assignment(db, TENANT, subject, utc_now())
+        start, end = _period(utc_now(), "month", "Asia/Shanghai", assignment)
+        db.add(
+            Usage(
+                tenant_id=TENANT,
+                subject_id=subject,
+                quota_code="ai_tokens",
+                period_start=start,
+                period_end=end,
+                used_units=used,
+            )
+        )
 inner = create_app(kit, "e2e-admin-key-000000000000000000000000000")
 PREFIX = "/user-quota"
 

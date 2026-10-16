@@ -21,7 +21,15 @@ from .admin_auth import (
     cookie_path,
     cookie_secure,
 )
-from .core import MEMBERSHIP_ROLE, QuotaKit, SubjectId, normalize_subject, utc_now
+from .core import (
+    MEMBERSHIP_ROLE,
+    QuotaError,
+    QuotaKit,
+    SubjectId,
+    _period,
+    normalize_subject,
+    utc_now,
+)
 from .models import (
     Assignment,
     Client,
@@ -96,6 +104,61 @@ def _asset_bytes(name: str) -> bytes:
 
 def _asset(name: str) -> str:
     return _asset_bytes(name).decode("utf-8")
+
+
+def _usage_limit_context(db, tenant: str, rows: list[Usage]) -> dict[int, dict]:
+    """Usage is the membership counter, not the independently ordered package counters.
+
+    Batch the page's lookups. Old counters lack historical limit snapshots, so do not
+    present today's limit as the cap for an old or differently configured period.
+    """
+    if not rows:
+        return {}
+    now = utc_now()
+    assignments = db.scalars(
+        select(Assignment)
+        .where(
+            Assignment.tenant_id == tenant,
+            Assignment.subject_id.in_({r.subject_id for r in rows}),
+            Assignment.package_code == "membership",
+            Assignment.revoked_at.is_(None),
+            Assignment.effective_at <= now,
+            Assignment.expires_at.is_(None) | (Assignment.expires_at > now),
+        )
+        .order_by(Assignment.sort_order, Assignment.id)
+    ).all()
+    by_subject = {}
+    for assignment in assignments:
+        by_subject.setdefault(assignment.subject_id, assignment)
+    limits = db.scalars(
+        select(Limit).where(
+            Limit.tenant_id == tenant,
+            Limit.level_code.in_({a.level_code for a in assignments}),
+            Limit.quota_code.in_({r.quota_code for r in rows}),
+        )
+    ).all()
+    by_limit = {(r.level_code, r.quota_code): r for r in limits}
+    result = {}
+    for row in rows:
+        item = {"limit_value": None, "limit_mode": None, "limit_status": "unavailable"}
+        assignment = by_subject.get(row.subject_id)
+        limit = by_limit.get((assignment.level_code, row.quota_code)) if assignment else None
+        if limit is not None:
+            try:
+                start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+            except QuotaError:
+                pass
+            else:
+                if (start, end) == (row.period_start, row.period_end):
+                    item.update(
+                        limit_value=limit.limit_value,
+                        limit_mode=limit.limit_mode,
+                        limit_status="current",
+                    )
+                else:
+                    item["limit_status"] = "historical"
+        result[row.id] = item
+    return result
 
 
 class TenantRequest(BaseModel):
@@ -755,16 +818,21 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
                 query = query.where(condition)
             count = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
             rows = db.scalars(query.order_by(model.id.desc()).offset(offset).limit(limit)).all()
+            contexts = _usage_limit_context(db, tenant, rows) if model is Usage else {}
         return {
             "table": name,
-            "columns": columns,
+            "columns": columns
+            + (["limit_value", "limit_mode", "limit_status"] if model is Usage else []),
             "total": count,
             "offset": offset,
             "rows": [
                 {
-                    column: (value.isoformat() + "Z" if isinstance(value, datetime) else value)
-                    for column in columns
-                    if (value := getattr(row, column)) is not None
+                    **contexts.get(row.id, {}),
+                    **{
+                        column: (value.isoformat() + "Z" if isinstance(value, datetime) else value)
+                        for column in columns
+                        if (value := getattr(row, column)) is not None
+                    },
                 }
                 for row in rows
             ],

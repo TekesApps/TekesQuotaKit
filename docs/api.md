@@ -774,3 +774,16 @@ Omitting `description` or sending null preserves an existing description. Sendin
 string clears it. Whitespace is trimmed. Level PUT still accepts no request body for old
 clients; send `{"description": "缴费业主免费，家庭2人"}` to set its description.
 Units, metering modes and Limit periods retain their existing immutability rules.
+
+### Admin usage display context (0.13.2)
+
+`GET /v1/admin/tables/tq_usage` adds `limit_value`, `limit_mode` and `limit_status`
+to each row. `limit_status: current` means the active membership policy's calculated
+period matches that counter's start and end exactly. Independent Level-package usage
+is kept in its own table and is not added to this counter's cap. The values are read
+in batches for the requested page; pagination and tenant filters still apply.
+
+Historical or unavailable policy context returns null cap/mode and `historical` or
+`unavailable` status. These counters have no historical cap snapshot. The console
+shows no percentage for unknown, unlimited or zero caps, and does not clamp percentages
+above 100%, and displays percentages with one decimal place. No accounting data or Service API behavior changes in this release.

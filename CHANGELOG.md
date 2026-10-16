@@ -8,6 +8,17 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-16
+
+### Added
+
+- Admin Usage table shows the membership counter's current-period cap and consumption
+  percentage (one decimal place). Batch-read limit context is tenant-scoped and never writes usage.
+- Usage and subject-summary numbers use thousands separators. Unlimited and zero caps
+  have no percentage; over-limit usage remains visible above 100%. Historical periods
+  without a matching current policy show an unavailable cap instead of inventing one.
+
+
 ## [0.13.1] - 2026-10-16
 
 ### Fixed
