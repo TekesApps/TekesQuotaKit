@@ -8,6 +8,18 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-10-16
+
+### Added
+
+- Usage defaults to consumption percentage descending, with an ascending/descending
+  selector. SQL orders the full filtered result before pagination using the unrounded
+  ratio; equal ratios use newest ID first. Unknown, historical, unlimited and zero-cap
+  percentages stay last in either direction. Changing order resets to the first page.
+- Calendar timezone and membership-term eligibility match the displayed cap context;
+  sorting neither reads all usage counters into memory nor changes accounting data.
+
+
 ## [0.13.2] - 2026-10-16
 
 ### Added

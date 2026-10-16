@@ -787,3 +787,15 @@ Historical or unavailable policy context returns null cap/mode and `historical` 
 `unavailable` status. These counters have no historical cap snapshot. The console
 shows no percentage for unknown, unlimited or zero caps, and does not clamp percentages
 above 100%, and displays percentages with one decimal place. No accounting data or Service API behavior changes in this release.
+
+### Usage consumption sorting (0.13.3)
+
+`GET /v1/admin/tables/tq_usage` defaults to consumption ratio descending. Pass
+`consumption_order=asc` or `consumption_order=desc` to choose the direction. Other tables retain
+newest-ID-first order and reject this parameter. Invalid directions return 422.
+
+Ordering is performed in SQL before pagination and after tenant/subject/Quota filters.
+Only finite positive current-period caps have a sortable ratio. Unknown/historical,
+unlimited and zero caps always sort last; ties use descending record ID. The ratio
+is not rounded for sorting even though the console displays one decimal place.
+No schema migration or accounting/configuration change is required.

@@ -428,11 +428,13 @@ export const dataPages = Object.keys(DATA_TABLES);
 
 export function DataPage({ kind, tenant, revision, focus }: PageProps & { kind: string }) {
   const spec = DATA_TABLES[kind], [offset, setOffset] = useState(0), [filters, setFilters] = useState<Row>(focus ?? {});
-  const result = useTable(spec.table, tenant, revision, offset, undefined, filters);
+  const [usageOrder, setUsageOrder] = useState('desc');
+  const result = useTable(spec.table, tenant, revision, offset, undefined, kind === 'usage' ? { ...filters, consumption_order: usageOrder } : filters);
   const subject = kind === 'usage' && filters.subject_id ? String(filters.subject_id) : '';
   return <section className="panel">
     <div className="panel-head"><div><h2>{spec.title}</h2><p className="muted">{spec.description}只读。{kind === 'usage' ? '按用户 ID 查询时，会显示该用户每个配额本周期的使用情况。' : ''}</p></div></div>
     <SearchBar keys={spec.searchKeys} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
+    {kind === 'usage' && <div className="toolbar"><label>消耗百分比排序<Select aria-label="消耗百分比排序" style={{ width: 180 }} value={usageOrder} options={[{ value: 'desc', label: '从高到低' }, { value: 'asc', label: '从低到高' }]} onChange={value => { setUsageOrder(value); setOffset(0); }} /></label></div>}
     {subject && <SubjectUsage tenant={tenant} subject={subject} revision={revision} />}
     <Table columns={spec.columns.map(k => kind === 'usage' && k === 'limit_value' ? column(k, {
       title: '上限', render: r => r.limit_status !== 'current' ? '—' : r.limit_mode === 'unlimited' ? '不限' : formatNumber(r.limit_value),

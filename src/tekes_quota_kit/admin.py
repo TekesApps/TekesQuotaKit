@@ -6,12 +6,13 @@ import json
 import re
 from datetime import datetime
 from importlib.resources import files
+from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Numeric, and_, case, cast, func, or_, select
 
 from . import __version__
 from .admin_auth import (
@@ -106,7 +107,9 @@ def _asset(name: str) -> str:
     return _asset_bytes(name).decode("utf-8")
 
 
-def _usage_limit_context(db, tenant: str, rows: list[Usage]) -> dict[int, dict]:
+def _usage_limit_context(
+    db, tenant: str, rows: list[Usage], *, now: datetime | None = None
+) -> dict[int, dict]:
     """Usage is the membership counter, not the independently ordered package counters.
 
     Batch the page's lookups. Old counters lack historical limit snapshots, so do not
@@ -114,7 +117,7 @@ def _usage_limit_context(db, tenant: str, rows: list[Usage]) -> dict[int, dict]:
     """
     if not rows:
         return {}
-    now = utc_now()
+    now = now or utc_now()
     assignments = db.scalars(
         select(Assignment)
         .where(
@@ -159,6 +162,75 @@ def _usage_limit_context(db, tenant: str, rows: list[Usage]) -> dict[int, dict]:
                     item["limit_status"] = "historical"
         result[row.id] = item
     return result
+
+
+def _order_usage_by_consumption(db, query, tenant: str, direction: str, now: datetime):
+    # Match the same first active membership as _usage_limit_context, without
+    # loading every usage counter into memory or sorting only the current page.
+    membership = (
+        select(Assignment.id)
+        .where(
+            Assignment.tenant_id == Usage.tenant_id,
+            Assignment.subject_id == Usage.subject_id,
+            Assignment.package_code == "membership",
+            Assignment.revoked_at.is_(None),
+            Assignment.effective_at <= now,
+            Assignment.expires_at.is_(None) | (Assignment.expires_at > now),
+        )
+        .order_by(Assignment.sort_order, Assignment.id)
+        .limit(1)
+        .correlate(Usage)
+        .scalar_subquery()
+    )
+    periods = db.execute(
+        select(Limit.period_kind, Limit.timezone)
+        .where(Limit.tenant_id == tenant, Limit.limit_mode == "finite", Limit.limit_value > 0)
+        .distinct()
+    ).all()
+    matches = []
+    for kind, timezone in periods:
+        if kind == "level_term":
+            continue
+        # Calendar periods do not depend on an Assignment.
+        start, end = _period(now, kind, timezone, None)
+        matches.append(
+            and_(
+                Limit.period_kind == kind,
+                Limit.timezone == timezone,
+                Usage.period_start == start,
+                Usage.period_end == end,
+            )
+        )
+    matches.append(
+        and_(
+            Limit.period_kind == "level_term",
+            Usage.period_start == func.coalesce(Assignment.term_start, Assignment.effective_at),
+            Usage.period_end == func.coalesce(Assignment.term_end, Assignment.expires_at),
+        )
+    )
+    ratio = case(
+        (
+            and_(Limit.limit_mode == "finite", Limit.limit_value > 0, or_(*matches)),
+            cast(Usage.used_units, Numeric(40, 16)) / func.nullif(Limit.limit_value, 0),
+        ),
+        else_=None,
+    )
+    return (
+        query.outerjoin(Assignment, Assignment.id == membership)
+        .outerjoin(
+            Limit,
+            and_(
+                Limit.tenant_id == Usage.tenant_id,
+                Limit.level_code == Assignment.level_code,
+                Limit.quota_code == Usage.quota_code,
+            ),
+        )
+        .order_by(
+            ratio.is_(None).asc(),
+            ratio.desc() if direction == "desc" else ratio.asc(),
+            Usage.id.desc(),
+        )
+    )
 
 
 class TenantRequest(BaseModel):
@@ -772,10 +844,13 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         tenant: str = Query(min_length=1, max_length=64),
         limit: int = Query(default=100, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        consumption_order: Literal["asc", "desc"] | None = None,
     ) -> dict:
         model = TABLES.get(name)
         if model is None:
             raise HTTPException(status_code=404, detail="Unknown table")
+        if consumption_order is not None and model is not Usage:
+            raise HTTPException(status_code=400, detail="Consumption sorting is only for usage")
         columns = [
             column.name for column in model.__table__.columns if column.name not in PRIVATE_COLUMNS
         ]
@@ -783,7 +858,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         # ?subject_id=42&quota_code=door_open_count.
         filters = []
         for key, raw in request.query_params.items():
-            if key in {"tenant", "limit", "offset"}:
+            if key in {"tenant", "limit", "offset", "consumption_order"}:
                 continue
             if key not in columns:
                 raise HTTPException(status_code=400, detail=f"Cannot filter by {key}")
@@ -817,8 +892,14 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             for condition in filters:
                 query = query.where(condition)
             count = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
-            rows = db.scalars(query.order_by(model.id.desc()).offset(offset).limit(limit)).all()
-            contexts = _usage_limit_context(db, tenant, rows) if model is Usage else {}
+            now = utc_now()
+            query = (
+                _order_usage_by_consumption(db, query, tenant, consumption_order or "desc", now)
+                if model is Usage
+                else query.order_by(model.id.desc())
+            )
+            rows = db.scalars(query.offset(offset).limit(limit)).all()
+            contexts = _usage_limit_context(db, tenant, rows, now=now) if model is Usage else {}
         return {
             "table": name,
             "columns": columns
