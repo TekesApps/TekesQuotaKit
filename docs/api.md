@@ -712,3 +712,17 @@ These grants are service-specific snapshots, never authorize a Service on their 
 charged after the ordered Level packages, in earliest-expiry order. `packages` and
 `package_charges` in responses still describe these old grants. Their tables and historical
 refunds are preserved. New deployments should use ordered Level packages above.
+
+## Configuration descriptions
+
+The existing admin PUT endpoints for Services, Levels, Quotas and Level Limits accept an
+optional `description` string (up to 2000 characters, including Chinese and newlines).
+Admin table rows return the stored description; the console displays and edits it.
+For example, a Level description can hold `198元/年，升级的1人`, while a Limit description
+can hold `按慢病数量` or `每月4次`. Descriptions are explanatory metadata; they do not
+create pricing, family sharing, dynamic quotas or enforcement rules.
+
+Omitting `description` or sending null preserves an existing description. Sending an empty
+string clears it. Whitespace is trimmed. Level PUT still accepts no request body for old
+clients; send `{"description": "缴费业主免费，家庭2人"}` to set its description.
+Units, metering modes and Limit periods retain their existing immutability rules.

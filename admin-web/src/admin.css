@@ -383,3 +383,13 @@
 .ordered-package {display:inline-block;margin-right:16px;}
 
 .admin-shell label > input[readonly] { background: var(--soft); color: var(--text); }
+
+/* Chinese configuration notes remain readable in both tables and editors. */
+textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: inherit; resize: vertical; }
+td:has(.description-text) { min-width: 220px; max-width: 400px; }
+.description-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.related-services { display: grid; gap: 6px; }
+.related-service { display: flex; align-items: center; gap: 6px; }
+button.note-help { min-height: 24px; padding: 2px 5px; white-space: nowrap; color: var(--primary); }
+button.note-help:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

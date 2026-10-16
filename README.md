@@ -200,3 +200,13 @@ For live editing, run `npm run dev` there; it proxies `/v1` to a Kit on `127.0.0
 ## License
 
 [MIT](LICENSE)
+
+### Configuration descriptions in the admin console
+
+Services, Levels, Quotas and Level Limits support editable descriptions for Chinese names,
+applicability and benefit rules (up to 2000 characters). The Level Limits table lists every
+Service using a Quota; hover or focus its help icon to read the Service description. Limit
+notes are labeled 额度说明. Numeric limits use thousands separators in tables and remain plain
+numbers in editors. Descriptions are metadata and do not enforce pricing, household sharing
+or dynamic quota rules. See [the API contract](docs/api.md#configuration-descriptions) and
+[the migration instructions](docs/deployment.md#adding-configuration-descriptions).

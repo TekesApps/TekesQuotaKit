@@ -36,6 +36,7 @@ CREATE TABLE tq_levels (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
 	level_code VARCHAR(64) NOT NULL,
+	description VARCHAR(2000),
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_level_code UNIQUE (tenant_id, level_code)
 );
@@ -46,6 +47,7 @@ CREATE TABLE tq_quotas (
 	quota_code VARCHAR(64) NOT NULL,
 	unit_code VARCHAR(32) NOT NULL,
 	metering_mode VARCHAR(16) NOT NULL,
+	description VARCHAR(2000),
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_quota_code UNIQUE (tenant_id, quota_code)
 );
@@ -133,6 +135,7 @@ CREATE TABLE tq_limits (
 	limit_value BIGINT,
 	period_kind VARCHAR(16) NOT NULL,
 	timezone VARCHAR(64) NOT NULL,
+	description VARCHAR(2000),
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_limit_code UNIQUE (tenant_id, level_code, quota_code),
 	FOREIGN KEY(tenant_id, level_code) REFERENCES tq_levels (tenant_id, level_code),
@@ -148,6 +151,7 @@ CREATE TABLE tq_services (
 	redemption_mode VARCHAR(16) NOT NULL,
 	charge_units BIGINT,
 	session_ttl_seconds INTEGER,
+	description VARCHAR(2000),
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_service_code UNIQUE (tenant_id, service_code),
 	FOREIGN KEY(tenant_id, quota_code) REFERENCES tq_quotas (tenant_id, quota_code)

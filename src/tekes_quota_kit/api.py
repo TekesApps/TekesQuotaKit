@@ -20,12 +20,17 @@ class ClientConfig(BaseModel):
     role: Literal["issuer", "provider", "consumer"]
 
 
-class QuotaConfig(BaseModel):
+class DescriptionConfig(BaseModel):
+    # Null/omitted preserves existing text; an empty string clears it.
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class QuotaConfig(DescriptionConfig):
     unit_code: str = Field(min_length=1, max_length=32)
     metering_mode: Literal["per_use", "reported_usage"]
 
 
-class ServiceConfig(BaseModel):
+class ServiceConfig(DescriptionConfig):
     quota_code: str | None = Field(default=None, min_length=1, max_length=64)
     service_kind: Literal["atomic", "composite"] = "atomic"
     redemption_mode: Literal["instant", "durable"] | None = None
@@ -37,7 +42,7 @@ class ServiceMemberConfig(BaseModel):
     max_uses: int | None = Field(default=None, gt=0, le=2147483647)
 
 
-class LimitConfig(BaseModel):
+class LimitConfig(DescriptionConfig):
     limit_mode: Literal["finite", "unlimited"]
     limit_value: int | None = Field(default=None, ge=0)
     period_kind: Literal["day", "week", "month", "level_term"]
@@ -179,12 +184,18 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     @app.put("/v1/admin/tenants/{tenant}/quotas/{quota_code}", dependencies=[Depends(admin)])
     def put_quota(tenant: str, quota_code: str, payload: QuotaConfig) -> dict:
-        kit.put_quota(tenant, quota_code, payload.unit_code, payload.metering_mode)
+        kit.put_quota(
+            tenant,
+            quota_code,
+            payload.unit_code,
+            payload.metering_mode,
+            description=payload.description,
+        )
         return {"quota_code": quota_code}
 
     @app.put("/v1/admin/tenants/{tenant}/levels/{level_code}", dependencies=[Depends(admin)])
-    def put_level(tenant: str, level_code: str) -> dict:
-        kit.put_level(tenant, level_code)
+    def put_level(tenant: str, level_code: str, payload: DescriptionConfig | None = None) -> dict:
+        kit.put_level(tenant, level_code, description=payload.description if payload else None)
         return {"level_code": level_code}
 
     @app.put("/v1/admin/tenants/{tenant}/services/{service_code}", dependencies=[Depends(admin)])
@@ -197,6 +208,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             redemption_mode=payload.redemption_mode,
             charge_units=payload.charge_units,
             session_ttl_seconds=payload.session_ttl_seconds,
+            description=payload.description,
         )
         return {"service_id": service_id, "service_code": service_code}
 
@@ -235,6 +247,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             payload.limit_value,
             payload.period_kind,
             payload.timezone,
+            description=payload.description,
         )
         return {"level_code": level_code, "quota_code": quota_code}
 

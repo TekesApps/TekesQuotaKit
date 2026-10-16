@@ -3,6 +3,8 @@ export type User = { username: string | null; expires_at?: string; via: 'session
 
 export const text = (value: unknown) => value == null || value === '' ? '—' : String(value);
 
+export const formatNumber = (value: unknown) => typeof value === 'number' ? value.toLocaleString('zh-CN') : text(value);
+
 /** API timestamps are naive UTC ("2026-10-08T06:00:00Z"); show them in the viewer's zone. */
 export const time = (value: unknown) => {
   if (!value) return '—';
@@ -24,6 +26,7 @@ export const statusNames: Record<string, string> = {
 
 /** Column titles shared by every table view. */
 export const columnNames: Record<string, string> = {
+  description: '中文说明',
   id: 'ID', tenant_id: '租户', client_id: 'Client ID', role: '角色',
   quota_code: 'Quota 配额', unit_code: '单位', metering_mode: '计量方式',
   level_code: 'Level', limit_mode: '限额方式', limit_value: '限额', period_kind: '周期', timezone: '时区',

@@ -205,7 +205,7 @@ test('looks up one user\'s usage and drills from a Level to its 等级额度', a
   await page.locator('tbody tr').filter({ hasText: 'basic' }).getByRole('button', { name: /1 项配额/ }).click();
   await expect(page.getByRole('heading', { name: '等级额度', level: 1 })).toBeVisible();
   await expect(search('Level')).toHaveValue('basic');
-  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await expect(page.locator('.panel:not(.relationship-overview) tbody tr')).toHaveCount(1);
   await page.locator('.search-bar').getByRole('button', { name: '清除' }).click();
   await expect(search('Level')).toHaveValue('');
 });
@@ -312,4 +312,82 @@ test.describe('adding a user\'s Level packages', () => {
     await expect(dialog.getByRole('alert')).toContainText('请至少添加一份额度包');
     expect(requests).toBe(0);
   });
+});
+
+test('Chinese descriptions persist through all four configuration editors', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  for (const [nav, code, description] of [
+    ['Service 服务', 'child', '基础体检服务\n按会员等级核对权益'],
+    ['Level 等级', 'basic', '缴费业主免费，家庭2人'],
+    ['Quota 配额', 'visits', '基础体检次数'],
+    ['等级额度', 'basic', '每月4次；每天表示不限次数'],
+  ]) {
+    await page.locator('.nav-btn').filter({ hasText: nav }).click();
+    const row = page.locator('tbody tr').filter({ has: page.locator('td .code').filter({ hasText: new RegExp(`^${code}$`) }) }).first();
+    await row.getByRole('button', { name: '操作菜单' }).click();
+    await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+    const input = page.locator('.drawer-panel').getByRole('textbox', { name: nav === '等级额度' ? /额度说明/ : /中文说明/ });
+    await expect(input).toHaveAttribute('maxlength', '2000');
+    await input.fill(description);
+    await page.locator('.drawer-panel').getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.locator('.drawer-panel')).toHaveCount(0);
+    if (nav === '等级额度') {
+      await row.getByRole('button', { name: /额度说明/ }).hover();
+      await expect(page.getByRole('tooltip')).toHaveText(description);
+    } else await expect(row.locator('.description-text')).toHaveText(description);
+    await page.reload();
+    await page.locator('.nav-btn').filter({ hasText: nav }).click();
+    await row.getByRole('button', { name: '操作菜单' }).click();
+    await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+    await expect(input).toHaveValue(description);
+    await page.locator('.drawer-head button').click();
+  }
+});
+
+
+test('limits distinguish service help from quota rules and show shared services', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: '等级额度' }).click();
+  await expect(page.getByRole('columnheader', { name: '关联 Service（服务说明）' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: '额度说明', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: '服务、配额与等级关系' })).toHaveCount(0);
+  const row = page.locator('tbody tr').filter({ hasText: 'visits' });
+  await expect(row).toContainText('basic');
+  await expect(row).toContainText('每周');
+  await expect(row.locator('.related-service .code')).toHaveText(['medication_ai', 'ai_chat', 'session']);
+  const help = row.getByRole('button', { name: 'ai_chat 服务说明', exact: true });
+  await help.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('健康管家与报告解读，共享每月AI额度');
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await help.focus();
+  await expect(page.getByRole('tooltip')).toHaveText('健康管家与报告解读，共享每月AI额度');
+  await expect(page.locator('.ant-tooltip:not(.ant-tooltip-hidden)')).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: 'test-results/service-help.png', fullPage: true });
+});
+
+
+test('large limits use thousands separators while editors keep numeric values', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: '等级额度' }).click();
+  const row = page.locator('tbody tr').filter({ hasText: 'visits' });
+  await row.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  const limit = page.locator('.drawer-panel input[type=number]');
+  await limit.fill('1000000');
+  await page.locator('.drawer-panel').getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  await expect(row.getByRole('cell', { name: '1,000,000', exact: true })).toBeVisible();
+  await row.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  await expect(limit).toHaveValue('1000000');
 });

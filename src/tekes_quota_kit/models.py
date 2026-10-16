@@ -61,6 +61,7 @@ class Level(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     level_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000))
     __table_args__ = (UniqueConstraint("tenant_id", "level_code", name="uq_tq_level_code"),)
 
 
@@ -72,6 +73,7 @@ class Quota(Base):
     quota_code: Mapped[str] = mapped_column(String(64), nullable=False)
     unit_code: Mapped[str] = mapped_column(String(32), nullable=False)
     metering_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000))
     __table_args__ = (UniqueConstraint("tenant_id", "quota_code", name="uq_tq_quota_code"),)
 
 
@@ -86,6 +88,7 @@ class Service(Base):
     redemption_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="instant")
     charge_units: Mapped[int | None] = mapped_column(BigInteger)
     session_ttl_seconds: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(String(2000))
     __table_args__ = (
         UniqueConstraint("tenant_id", "service_code", name="uq_tq_service_code"),
         ForeignKeyConstraint(
@@ -131,6 +134,7 @@ class Limit(Base):
     limit_value: Mapped[int | None] = mapped_column(BigInteger)
     period_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000))
     __table_args__ = (
         UniqueConstraint("tenant_id", "level_code", "quota_code", name="uq_tq_limit_code"),
         ForeignKeyConstraint(
