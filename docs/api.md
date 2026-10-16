@@ -51,6 +51,53 @@ Since 0.11.0 `subject_id` is a string of 1 to 128 characters matching `^[A-Za-z0
 - Example: `POST /v1/redeem` with `{"subject_id": "u_8f3k2", "service_code": "report_export", "request_key": "export-7f3b"}` and later `X-Subject-ID: u_8f3k2`.
 - Existing integer IDs keep working: old clients sending `42` reach the same user and quota as before, and tokens for numeric IDs are unchanged, so a retry with the same `request_key` still returns the same token.
 
+## Service availability (since 0.13.0)
+
+A Service has a boolean `enabled`, default true. It applies to every Level, including
+unlimited VIP limits. Disabling availability does not delete the Service or its history.
+
+- Configure `enabled` in the existing admin Service PUT; omission or null preserves
+  the stored state (defaults to true for a new Service).
+- `PATCH /v1/admin/tenants/{tenant}/services/{service_code}/status` accepts exactly
+  `{"enabled": false}` or `{"enabled": true}` and returns `service_id`, `service_code`
+  and `enabled`. Admin authentication is required. An unknown Service returns 404.
+- New `token`, `redeem`, `begin`, child `use`, and `GET /v1/quota` requests for a
+  disabled Service return **403 `service_disabled`**, with `service_id`, `service_code`
+  and `enabled: false`. Retries of admission requests also return this status.
+  A Service absent from the caller's tenant returns **404 `unknown_service`**.
+  An existing Service outside a client's scope still returns `service_forbidden`.
+- Durable parents and children both obey their live switches. New sessions include
+  enabled children only. Disabling a child also blocks its use from older sessions;
+  changing a switch never grants children absent from the session's original snapshot.
+- Existing `settle`, `stop`, `refund`, `close`, token status and unsettled queries
+  remain available for accounting/audit. Their original mode, ownership and refund
+  restrictions still apply; disabling never erases or automatically refunds usage.
+
+`GET /v1/members/{subject_id}/usage` takes a **membership** client credential and returns
+the same user entitlement/usage structure as the admin subject-usage endpoint, limited
+to the credential's tenant. Its backend must authenticate the person before choosing
+`subject_id`; never ship the credential to a miniapp. No active membership returns
+`member: null` and `quotas: []`.
+
+Each `quotas[]` entry contains:
+
+- `service_details`: all directly associated Services, including `service_id`,
+  `service_code`, `description`, and the boolean `enabled`. Disabled entries remain
+  identifiable; a miniapp should display only entries with `enabled === true`.
+- `services`: enabled Service codes only (the existing string-list type is preserved).
+- `service_balances`: enabled Services only. Disabling one Service does not disable
+  another Service using the same Quota or change the shared usage/limit.
+
+A disabled Service is a successful configuration/entitlement lookup with `enabled: false`,
+while attempting to call or query its usable balance returns the explicit domain error:
+
+```json
+{"code":"service_disabled","message":"Service is disabled","service_id":3,"service_code":"health_measurement","enabled":false}
+```
+
+Admin table browsing includes enabled and disabled Services, so operators can re-enable them.
+No availability filter is applied to historical tokens, ledger or usage records.
+
 ## Error format
 
 Domain errors raised by the quota engine (`QuotaError`) are returned with their HTTP status and this JSON body:
@@ -84,6 +131,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | `service_forbidden` | 403 | The Service exists in the tenant but is not the client's bound `service_code`. |
 | `scope_mismatch` | 403 | Token belongs to another tenant, Service, or subject (`X-Subject-ID`). |
 | `wrong_provider` | 403 | Token was redeemed, settled, or opened by a different client; only that client may use, close, settle, refund, or inspect it. |
+| `service_disabled` | 403 | Service exists but is disabled; includes service identity and `enabled: false`. |
 | `unknown_service` | 404 | Service not found in the tenant. |
 | `unknown_quota` | 404 | Quota not found in the tenant. |
 | `unknown_level` | 404 | Level not found in the tenant. |

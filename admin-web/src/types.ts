@@ -26,6 +26,7 @@ export const statusNames: Record<string, string> = {
 
 /** Column titles shared by every table view. */
 export const columnNames: Record<string, string> = {
+  enabled: '启用状态',
   description: '中文说明',
   id: 'ID', tenant_id: '租户', client_id: 'Client ID', role: '角色',
   quota_code: 'Quota 配额', unit_code: '单位', metering_mode: '计量方式',

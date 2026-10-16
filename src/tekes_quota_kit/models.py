@@ -83,6 +83,7 @@ class Service(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     service_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     quota_code: Mapped[str | None] = mapped_column(String(64))
     service_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="atomic")
     redemption_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="instant")

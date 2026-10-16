@@ -31,11 +31,17 @@ class QuotaConfig(DescriptionConfig):
 
 
 class ServiceConfig(DescriptionConfig):
+    # Existing integrations omitting the field must not re-enable a disabled Service.
+    enabled: bool | None = Field(default=None, strict=True)
     quota_code: str | None = Field(default=None, min_length=1, max_length=64)
     service_kind: Literal["atomic", "composite"] = "atomic"
     redemption_mode: Literal["instant", "durable"] | None = None
     charge_units: int | None = Field(default=None, gt=0)
     session_ttl_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
+class ServiceStatusConfig(BaseModel):
+    enabled: bool = Field(strict=True)
 
 
 class ServiceMemberConfig(BaseModel):
@@ -209,8 +215,15 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             charge_units=payload.charge_units,
             session_ttl_seconds=payload.session_ttl_seconds,
             description=payload.description,
+            enabled=payload.enabled,
         )
         return {"service_id": service_id, "service_code": service_code}
+
+    @app.patch(
+        "/v1/admin/tenants/{tenant}/services/{service_code}/status", dependencies=[Depends(admin)]
+    )
+    def set_service_status(tenant: str, service_code: str, payload: ServiceStatusConfig) -> dict:
+        return kit.set_service_enabled(tenant, service_code, payload.enabled)
 
     @app.put(
         "/v1/admin/tenants/{tenant}/services/{parent}/members/{child}",
@@ -452,6 +465,13 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         caller: Annotated[Client, Depends(membership)],
     ) -> dict:
         return {"subject_id": subject_id, "member": kit.membership(caller.tenant_id, subject_id)}
+
+    @app.get("/v1/members/{subject_id}/usage")
+    def member_usage(
+        subject_id: Annotated[SubjectId, Path()],
+        caller: Annotated[Client, Depends(membership)],
+    ) -> dict:
+        return kit.subject_usage(caller.tenant_id, subject_id)
 
     @app.delete("/v1/members/{subject_id}")
     def end_member(

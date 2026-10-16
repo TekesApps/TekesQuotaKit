@@ -306,7 +306,14 @@ class QuotaKit(LevelPackages):
         charge_units: int | None = None,
         session_ttl_seconds: int | None = None,
         description: str | None = None,
+        enabled: bool | None = None,
     ) -> int:
+        _require(
+            enabled is None or type(enabled) is bool,
+            "invalid_service_enabled",
+            "Service enabled must be a boolean",
+            400,
+        )
         redemption_mode = redemption_mode or ("durable" if kind == "composite" else "instant")
         _require(
             kind in {"atomic", "composite"}, "invalid_service_kind", "Invalid Service kind", 400
@@ -354,9 +361,56 @@ class QuotaKit(LevelPackages):
             row.redemption_mode = redemption_mode
             row.charge_units = charge_units
             row.session_ttl_seconds = session_ttl_seconds
+            if enabled is not None:
+                row.enabled = enabled
             self._set_description(row, description)
             db.flush()
             return row.id
+
+    def set_service_enabled(self, tenant: str, code: str, enabled: bool) -> dict:
+        with self.sessions.begin() as db:
+            service = self._service(db, tenant, code)
+            service.enabled = enabled
+            return self._service_status(service)
+
+    @staticmethod
+    def _service_status(service: Service) -> dict:
+        return {
+            "service_id": service.id,
+            "service_code": service.service_code,
+            "enabled": service.enabled,
+        }
+
+    @staticmethod
+    def _service(db: Session, tenant: str, code: str) -> Service:
+        service = db.scalar(
+            select(Service).where(Service.tenant_id == tenant, Service.service_code == code)
+        )
+        _require(service is not None, "unknown_service", "Service not found", 404)
+        return service
+
+    @staticmethod
+    def _require_service_enabled(service: Service) -> None:
+        if not service.enabled:
+            raise QuotaError(
+                "service_disabled",
+                "Service is disabled",
+                403,
+                details=QuotaKit._service_status(service),
+            )
+
+    @staticmethod
+    def _enabled_codes(db: Session, tenant: str, codes: list[str]) -> list[str]:
+        enabled = set(
+            db.scalars(
+                select(Service.service_code).where(
+                    Service.tenant_id == tenant,
+                    Service.service_code.in_(codes),
+                    Service.enabled.is_(True),
+                )
+            )
+        )
+        return [code for code in codes if code in enabled]
 
     def put_service_member(
         self, tenant: str, parent: str, child: str, max_uses: int | None = None
@@ -921,6 +975,7 @@ class QuotaKit(LevelPackages):
             select(Service).where(Service.tenant_id == tenant, Service.service_code == service_code)
         )
         _require(service is not None, "unknown_service", "Service not found", 404)
+        QuotaKit._require_service_enabled(service)
         quota = QuotaKit._quota(db, tenant, service.quota_code)
         _require(quota is not None, "no_quota", "Service has no direct Quota")
         assignments = QuotaKit._assignments(db, tenant, subject, now, lock=lock)
@@ -986,6 +1041,7 @@ class QuotaKit(LevelPackages):
             "Client cannot access this Service",
             403,
         )
+        QuotaKit._require_service_enabled(service)
         return service
 
     def _create_token(
@@ -1250,6 +1306,7 @@ class QuotaKit(LevelPackages):
                 "Client cannot access this Service",
                 403,
             )
+            self._require_service_enabled(service)
             token = self._token_for_request(provider, subject, service_code, request_key)
             prior = db.scalar(
                 select(Token).where(Token.token_hash == self.key_hash(token)).with_for_update()
@@ -1274,7 +1331,9 @@ class QuotaKit(LevelPackages):
                         if prior.session_expires_at is not None
                         else None
                     ),
-                    "authorized_services": [item.child_service_code for item in grants],
+                    "authorized_services": self._enabled_codes(
+                        db, provider.tenant_id, [item.child_service_code for item in grants]
+                    ),
                     "idempotent": True,
                 }
             _require(
@@ -1305,7 +1364,9 @@ class QuotaKit(LevelPackages):
                         if row.session_expires_at is not None
                         else None
                     ),
-                    "authorized_services": [item.child_service_code for item in grants],
+                    "authorized_services": self._enabled_codes(
+                        db, provider.tenant_id, [item.child_service_code for item in grants]
+                    ),
                     "idempotent": True,
                 }
             quota, limit, start, end = self._policy(
@@ -1316,14 +1377,22 @@ class QuotaKit(LevelPackages):
             )
             members = db.scalars(
                 select(ServiceMember)
+                .join(
+                    Service,
+                    (Service.tenant_id == ServiceMember.tenant_id)
+                    & (Service.service_code == ServiceMember.child_service_code),
+                )
                 .where(
                     ServiceMember.tenant_id == provider.tenant_id,
                     ServiceMember.parent_service_code == service_code,
+                    Service.enabled.is_(True),
                 )
                 .order_by(ServiceMember.child_service_code)
             ).all()
             if service.service_kind == "composite":
-                _require(bool(members), "empty_composite", "Composite Service has no members")
+                _require(
+                    bool(members), "empty_composite", "Composite Service has no enabled members"
+                )
             usage = self._usage(db, provider.tenant_id, subject, quota.quota_code, start, end)
             units = service.charge_units
             _require(
@@ -1396,6 +1465,8 @@ class QuotaKit(LevelPackages):
                 "Only beginning client may use this session",
                 403,
             )
+            self._require_service_enabled(self._service(db, row.tenant_id, row.service_code))
+            self._require_service_enabled(self._service(db, row.tenant_id, child_code))
             _require(
                 row.status == "settled"
                 and row.session_status == "open"
@@ -1698,6 +1769,8 @@ class QuotaKit(LevelPackages):
             )
             auxiliary = sum(max(0, g.total_units - g.used_units) for g in packages)
             return {
+                "service_code": caller.service_code,
+                "enabled": True,
                 "main_remaining": values[0],
                 "auxiliary_remaining": None
                 if any(v is None for v in values[1:])
@@ -1767,16 +1840,21 @@ class QuotaKit(LevelPackages):
                     continue
                 seen.add(limit.quota_code)
                 quota = self._quota(db, tenant, limit.quota_code)
-                services = db.scalars(
-                    select(Service.service_code)
+                service_rows = db.scalars(
+                    select(Service)
                     .where(Service.tenant_id == tenant, Service.quota_code == limit.quota_code)
                     .order_by(Service.service_code)
                 ).all()
+                services = [s.service_code for s in service_rows if s.enabled]
                 item = {
                     "quota_code": limit.quota_code,
                     "unit": quota.unit_code if quota else None,
                     "metering_mode": quota.metering_mode if quota else None,
                     "services": list(services),
+                    "service_details": [
+                        {**self._service_status(s), "description": s.description}
+                        for s in service_rows
+                    ],
                     "limit_mode": limit.limit_mode,
                     "limit": limit.limit_value,
                     "period_kind": limit.period_kind,
