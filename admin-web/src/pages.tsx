@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Select, Switch, Tooltip } from 'antd';
+import { Select, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option, type UpdateRow } from './components';
 import { columnNames, type Row, text, time, formatNumber, formatPercent } from './types';
@@ -147,13 +147,14 @@ export function LimitsPage(props: PageProps) {
   }} />;
 }
 
-function ServiceEnabledSwitch({ row, tenant, onSaved }: { row: Row; tenant: string; onSaved: (enabled: boolean) => void }) {
+const serviceStates = [option('enabled', '已开放'), option('incoming', '即将开放'), option('disabled', '隐藏停用')];
+function ServiceStatusSelect({ row, tenant, onSaved }: { row: Row; tenant: string; onSaved: (status: string) => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  return <div><Switch checked={row.enabled === true} loading={busy} checkedChildren="启用" unCheckedChildren="禁用" aria-label={`${String(row.service_code)} 启用状态`} onChange={async enabled => {
+  return <div><Select value={String(row.status)} options={serviceStates} loading={busy} disabled={busy} style={{ width: 180 }} aria-label={`${String(row.service_code)} 服务状态`} onChange={async status => {
     setBusy(true); setError('');
     try {
-      const saved = await api<{ enabled: boolean }>(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { enabled });
-      onSaved(saved.enabled);
+      const saved = await api<{ status: string }>(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { status });
+      onSaved(saved.status);
     } catch (e) { setError(e instanceof Error ? e.message : '状态修改失败'); } finally { setBusy(false); }
   }} />{error && <div role="alert" className="error">{error}</div>}</div>;
 }
@@ -162,11 +163,11 @@ export function ServicesPage(props: PageProps) {
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
-    description: '关闭尚未开放的服务后，接口明确返回 service_disabled，权益查询标记 enabled: false。已有服务的结算、退款仍可完成。组合 Service 的子项在“组合成员”里配置。',
-    columns: updateRow => [column('service_code'), column('enabled', { render: row => <ServiceEnabledSwitch row={row} tenant={props.tenant} onSaved={enabled => updateRow(row.id, { enabled })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
-    defaults: { service_kind: 'atomic', redemption_mode: 'instant', enabled: true },
+    description: '已开放：可使用；即将开放：仅在包含该服务的套餐中展示预告，不可调用；隐藏停用：不向会员接口返回服务详情。套餐通过 Level 的正额度或不限量 Quota 包含服务，零额度或未配置则不展示。已有服务仍可结算和退款。',
+    columns: updateRow => [column('service_code'), column('status', { title: '服务状态', render: row => <ServiceStatusSelect row={row} tenant={props.tenant} onSaved={status => updateRow(row.id, { status, enabled: status === 'enabled' })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
+    defaults: { service_kind: 'atomic', redemption_mode: 'instant', status: 'enabled' },
     fields: [
-      { name: 'enabled', label: '启用服务', type: 'checkbox', hint: '关闭后禁止新调用；权益查询返回禁用状态，小程序应只展示已启用服务。' },
+      { name: 'status', label: '服务状态', required: true, options: serviceStates, hint: '即将开放仅预告；隐藏停用不向会员接口返回详情。套餐是否包含服务由 Level 的正额度或不限量配额决定。' },
       descriptionField,
       { name: 'service_code', label: 'Service code', required: true, key: true, placeholder: 'measurement_session' },
       { name: 'quota_code', label: 'Quota', options: quotas, hint: '子项可留空' },
@@ -176,7 +177,7 @@ export function ServicesPage(props: PageProps) {
       { name: 'session_ttl_seconds', label: '默认时长（秒）', type: 'number', min: 60, max: 86400, hint: '可留空' },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/services/${enc(required(d.service_code, 'Service code'))}`, {
-      enabled: d.enabled, description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
+      status: d.status, description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
       charge_units: d.charge_units, session_ttl_seconds: d.session_ttl_seconds,
     }),
   }} />;

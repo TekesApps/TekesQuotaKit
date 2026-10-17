@@ -381,3 +381,12 @@ and assignments are not altered. Keep this additive table on code rollback. Main
 Level's quota. Refund or expiry restores the predecessor's still-valid term. Explicit
 auxiliary Level packages retain their original stacking behavior. Production
 business traffic and verification must go through the business backend.
+
+### 0.15.0 service state migration
+
+Back up the full database, then apply `migrations/add_service_status_mysql.sql`
+once before deploying 0.15.0. It adds `tq_services.status` and backfills enabled=true
+as enabled, false as disabled; it does not enable services or introduce incoming
+previews. Keep the boolean synchronized through the admin APIs. Before rolling
+back, drain/block writes and reconcile status and boolean; older versions do not
+understand incoming. Business verification for SKZY continues through Backend only.

@@ -18,7 +18,7 @@ def test_catalog_reads_live_rules_scoped_by_membership_client_without_mutation(t
     second = client.get("/v1/membership/catalog", headers=headers).json()
     star = next(level for level in second["levels"] if level["code"] == "星会员")
     assert star["limits"][0]["mode"] == "unlimited"
-    assert second["services"][0]["enabled"] is False
+    assert second["services"] == []
     assert not any(key in second for key in ["members", "assignments", "clients", "usage"])
     assert kit.membership(TENANT, "42") is None
 

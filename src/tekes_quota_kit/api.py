@@ -33,6 +33,7 @@ class QuotaConfig(DescriptionConfig):
 class ServiceConfig(DescriptionConfig):
     # Existing integrations omitting the field must not re-enable a disabled Service.
     enabled: bool | None = Field(default=None, strict=True)
+    status: Literal["enabled", "disabled", "incoming"] | None = None
     quota_code: str | None = Field(default=None, min_length=1, max_length=64)
     service_kind: Literal["atomic", "composite"] = "atomic"
     redemption_mode: Literal["instant", "durable"] | None = None
@@ -41,7 +42,8 @@ class ServiceConfig(DescriptionConfig):
 
 
 class ServiceStatusConfig(BaseModel):
-    enabled: bool = Field(strict=True)
+    enabled: bool | None = Field(default=None, strict=True)
+    status: Literal["enabled", "disabled", "incoming"] | None = None
 
 
 class ServiceMemberConfig(BaseModel):
@@ -222,6 +224,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             session_ttl_seconds=payload.session_ttl_seconds,
             description=payload.description,
             enabled=payload.enabled,
+            status=payload.status,
         )
         return {"service_id": service_id, "service_code": service_code}
 
@@ -229,7 +232,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         "/v1/admin/tenants/{tenant}/services/{service_code}/status", dependencies=[Depends(admin)]
     )
     def set_service_status(tenant: str, service_code: str, payload: ServiceStatusConfig) -> dict:
-        return kit.set_service_enabled(tenant, service_code, payload.enabled)
+        return kit.set_service_status(tenant, service_code, payload.status, enabled=payload.enabled)
 
     @app.put(
         "/v1/admin/tenants/{tenant}/services/{parent}/members/{child}",

@@ -147,6 +147,7 @@ CREATE TABLE tq_services (
 	tenant_id VARCHAR(64) NOT NULL,
 	service_code VARCHAR(64) NOT NULL,
 	enabled BOOL NOT NULL DEFAULT '1',
+	status VARCHAR(16) NOT NULL DEFAULT 'enabled',
 	quota_code VARCHAR(64),
 	service_kind VARCHAR(16) NOT NULL,
 	redemption_mode VARCHAR(16) NOT NULL,

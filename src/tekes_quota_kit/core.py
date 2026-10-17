@@ -308,6 +308,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
         session_ttl_seconds: int | None = None,
         description: str | None = None,
         enabled: bool | None = None,
+        status: str | None = None,
     ) -> int:
         _require(
             enabled is None or type(enabled) is bool,
@@ -315,6 +316,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
             "Service enabled must be a boolean",
             400,
         )
+        status = self._resolve_service_status(status, enabled, optional=True)
         redemption_mode = redemption_mode or ("durable" if kind == "composite" else "instant")
         _require(
             kind in {"atomic", "composite"}, "invalid_service_kind", "Invalid Service kind", 400
@@ -362,16 +364,58 @@ class QuotaKit(LevelPackages, MembershipPurchases):
             row.redemption_mode = redemption_mode
             row.charge_units = charge_units
             row.session_ttl_seconds = session_ttl_seconds
-            if enabled is not None:
-                row.enabled = enabled
+            if status is not None:
+                row.status = status
+                row.enabled = status == "enabled"
             self._set_description(row, description)
             db.flush()
             return row.id
 
+    @staticmethod
+    def _resolve_service_status(status, enabled, *, optional=False):
+        _require(
+            enabled is None or type(enabled) is bool,
+            "invalid_service_enabled",
+            "Service enabled must be a boolean",
+            422,
+        )
+        _require(
+            status is None or status in {"enabled", "disabled", "incoming"},
+            "invalid_service_status",
+            "Invalid Service status",
+            422,
+        )
+        _require(
+            optional or status is not None or enabled is not None,
+            "invalid_service_status",
+            "Service status is required",
+            422,
+        )
+        _require(
+            status is None or enabled is None or enabled == (status == "enabled"),
+            "invalid_service_status",
+            "Conflicting Service status and enabled",
+            422,
+        )
+        return (
+            status
+            if status is not None
+            else ("enabled" if enabled else "disabled")
+            if enabled is not None
+            else None
+        )
+
     def set_service_enabled(self, tenant: str, code: str, enabled: bool) -> dict:
+        return self.set_service_status(tenant, code, None, enabled=enabled)
+
+    def set_service_status(
+        self, tenant: str, code: str, status: str | None, *, enabled=None
+    ) -> dict:
+        status = self._resolve_service_status(status, enabled)
         with self.sessions.begin() as db:
             service = self._service(db, tenant, code)
-            service.enabled = enabled
+            service.status = status
+            service.enabled = status == "enabled"
             return self._service_status(service)
 
     @staticmethod
@@ -380,6 +424,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
             "service_id": service.id,
             "service_code": service.service_code,
             "enabled": service.enabled,
+            "status": service.status,
         }
 
     @staticmethod
@@ -392,10 +437,12 @@ class QuotaKit(LevelPackages, MembershipPurchases):
 
     @staticmethod
     def _require_service_enabled(service: Service) -> None:
-        if not service.enabled:
+        if service.status != "enabled" or not service.enabled:
             raise QuotaError(
-                "service_disabled",
-                "Service is disabled",
+                "service_incoming" if service.status == "incoming" else "service_disabled",
+                "Service is not yet available"
+                if service.status == "incoming"
+                else "Service is disabled",
                 403,
                 details=QuotaKit._service_status(service),
             )
@@ -408,6 +455,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                     Service.tenant_id == tenant,
                     Service.service_code.in_(codes),
                     Service.enabled.is_(True),
+                    Service.status == "enabled",
                 )
             )
         )
@@ -969,9 +1017,11 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                         "code": service.service_code,
                         "quotaCode": service.quota_code,
                         "enabled": service.enabled,
+                        "status": service.status,
                         "description": service.description or "",
                     }
                     for service in services
+                    if service.status != "disabled"
                 ],
             }
 
@@ -1442,6 +1492,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                     ServiceMember.tenant_id == provider.tenant_id,
                     ServiceMember.parent_service_code == service_code,
                     Service.enabled.is_(True),
+                    Service.status == "enabled",
                 )
                 .order_by(ServiceMember.child_service_code)
             ).all()
@@ -1901,7 +1952,9 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                     .where(Service.tenant_id == tenant, Service.quota_code == limit.quota_code)
                     .order_by(Service.service_code)
                 ).all()
-                services = [s.service_code for s in service_rows if s.enabled]
+                services = [
+                    s.service_code for s in service_rows if s.enabled and s.status == "enabled"
+                ]
                 item = {
                     "quota_code": limit.quota_code,
                     "unit": quota.unit_code if quota else None,
@@ -1910,6 +1963,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                     "service_details": [
                         {**self._service_status(s), "description": s.description}
                         for s in service_rows
+                        if s.status != "disabled"
                     ],
                     "limit_mode": limit.limit_mode,
                     "limit": limit.limit_value,
