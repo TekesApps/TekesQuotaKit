@@ -5,7 +5,8 @@ def test_catalog_reads_live_rules_scoped_by_membership_client_without_mutation(t
     kit, client = setup(tmp_path)
     _, contract = provision(client, "catalog-reader", "membership")
     headers = {"Authorization": "Bearer " + contract["client_key"]}
-    kit.put_level(TENANT, "星会员", description="缴费业主免费")
+    kit.put_level(TENANT, "member", publication_status="formal")
+    kit.put_level(TENANT, "星会员", description="缴费业主免费", publication_status="formal")
     kit.put_limit(TENANT, "星会员", "door_open_count", "finite", 4, "week", "Asia/Shanghai")
     first = client.get("/v1/membership/catalog", headers=headers)
     assert first.status_code == 200

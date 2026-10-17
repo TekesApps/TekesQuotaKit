@@ -61,6 +61,9 @@ class Level(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     level_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    publication_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="test", server_default="test"
+    )
     description: Mapped[str | None] = mapped_column(String(2000))
     __table_args__ = (UniqueConstraint("tenant_id", "level_code", name="uq_tq_level_code"),)
 

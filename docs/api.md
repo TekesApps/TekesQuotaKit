@@ -846,3 +846,15 @@ zero quota is not a coming-soon entitlement. Business projections must hide thes
 rows and keep incoming separate from enabled siblings sharing the same quota.
 Admin retains all three states for configuration. No existing disabled service is
 automatically promoted to incoming.
+
+## Level publication (0.16.0)
+
+Level `publication_status` is `test` (测试档位) or `formal` (正式档位).
+New Levels default to test. Admin Level PUT accepts the field; omission or null
+preserves the current value. Editing notes must not promote a test Level.
+Operators can promote to formal after testing, or return it to test.
+The membership catalog returns ONLY formal Levels and marks each returned Level
+`publicationStatus: formal`. Admin configuration and private existing memberships
+retain all Levels for internal testing and history. Publication does not change
+quotas, assignments, payment prices, or user-specific auxiliary grants. Formal
+publication does not automatically create a purchasable business SKU.

@@ -525,12 +525,27 @@ class QuotaKit(LevelPackages, MembershipPurchases):
             )
             row.description = value.strip() or None
 
-    def put_level(self, tenant: str, code: str, *, description: str | None = None) -> None:
+    def put_level(
+        self,
+        tenant: str,
+        code: str,
+        *,
+        description: str | None = None,
+        publication_status: str | None = None,
+    ) -> None:
+        _require(
+            publication_status is None or publication_status in {"test", "formal"},
+            "invalid_level_publication",
+            "Invalid Level publication status",
+            422,
+        )
         with self.sessions.begin() as db:
             row = self._level(db, tenant, code)
             if row is None:
                 row = Level(tenant_id=tenant, level_code=code)
                 db.add(row)
+            if publication_status is not None:
+                row.publication_status = publication_status
             self._set_description(row, description)
 
     def put_package(self, tenant: str, code: str, name: str, service: str, units: int) -> None:
@@ -972,7 +987,9 @@ class QuotaKit(LevelPackages, MembershipPurchases):
         """Tenant-scoped configuration only: no members, usage or client credentials."""
         with self.sessions() as db:
             levels = db.scalars(
-                select(Level).where(Level.tenant_id == tenant).order_by(Level.level_code)
+                select(Level)
+                .where(Level.tenant_id == tenant, Level.publication_status == "formal")
+                .order_by(Level.level_code)
             ).all()
             limits = db.scalars(
                 select(Limit).where(Limit.tenant_id == tenant).order_by(Limit.quota_code)
@@ -988,6 +1005,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
                 "levels": [
                     {
                         "code": level.level_code,
+                        "publicationStatus": level.publication_status,
                         "description": level.description or "",
                         "limits": [
                             {

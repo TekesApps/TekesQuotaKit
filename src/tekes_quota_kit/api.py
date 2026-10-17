@@ -25,6 +25,10 @@ class DescriptionConfig(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
 
 
+class LevelConfig(DescriptionConfig):
+    publication_status: Literal["test", "formal"] | None = None
+
+
 class QuotaConfig(DescriptionConfig):
     unit_code: str = Field(min_length=1, max_length=32)
     metering_mode: Literal["per_use", "reported_usage"]
@@ -208,8 +212,13 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         return {"quota_code": quota_code}
 
     @app.put("/v1/admin/tenants/{tenant}/levels/{level_code}", dependencies=[Depends(admin)])
-    def put_level(tenant: str, level_code: str, payload: DescriptionConfig | None = None) -> dict:
-        kit.put_level(tenant, level_code, description=payload.description if payload else None)
+    def put_level(tenant: str, level_code: str, payload: LevelConfig | None = None) -> dict:
+        kit.put_level(
+            tenant,
+            level_code,
+            description=payload.description if payload else None,
+            publication_status=payload.publication_status if payload else None,
+        )
         return {"level_code": level_code}
 
     @app.put("/v1/admin/tenants/{tenant}/services/{service_code}", dependencies=[Depends(admin)])

@@ -36,6 +36,7 @@ CREATE TABLE tq_levels (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	tenant_id VARCHAR(64) NOT NULL,
 	level_code VARCHAR(64) NOT NULL,
+	publication_status VARCHAR(16) NOT NULL DEFAULT 'test',
 	description VARCHAR(2000),
 	PRIMARY KEY (id),
 	CONSTRAINT uq_tq_level_code UNIQUE (tenant_id, level_code)

@@ -502,3 +502,26 @@ test('usage defaults to highest consumption and can switch order while keeping f
   await expect(ids).toHaveText(['10142', '10139', '10141', '10140']);
   await page.screenshot({ path: 'test-results/usage-sorted.png', fullPage: true });
 });
+
+
+test('Level test/formal publication survives editing and can be reversed', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: 'Level 等级' }).click();
+  const row=page.locator('tbody tr').filter({ has:page.getByRole('cell',{name:'basic',exact:true}) });
+  for(const [label,text] of [['正式档位（formal）','正式档位'],['测试档位（test）','测试档位']]) {
+    await row.getByRole('button',{name:'操作菜单'}).click();
+    await page.getByRole('menuitem',{name:'编辑',exact:true}).click();
+    await page.getByLabel('档位类型',{exact:false}).click();
+    await page.locator('.ant-select-dropdown').getByText(label,{exact:true}).click();
+    await page.locator('.drawer-panel').getByRole('button',{name:'保存',exact:true}).click();
+    await expect(page.locator('.drawer-panel')).toHaveCount(0);
+    await expect(row).toContainText(text);
+    await page.reload();
+    await page.locator('.nav-btn').filter({hasText:'Level 等级'}).click();
+    await expect(row).toContainText(text);
+  }
+  await page.screenshot({path:'test-results/level-publication.png',fullPage:true});
+});

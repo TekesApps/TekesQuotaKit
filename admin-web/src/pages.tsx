@@ -98,10 +98,11 @@ export function LevelsPage(props: PageProps) {
   } };
   return <ConfigPage {...props} spec={{
     searchKeys: ['level_code'], table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level', editable: true,
-    description: '会员等级。每个等级对各配额能用多少，在“等级额度”里配置；点击右侧的数量查看。',
-    columns: [column('level_code'), column('description'), amounts],
-    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, descriptionField],
-    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description }),
+    description: '新建默认测试档位，仅供内部配置和测试，不对外返回。验证后可转为正式档位，只有正式档位进入对外会员目录。各档额度在“等级额度”配置；特定用户附加额度不作为公开档位。',
+    columns: [column('level_code'), column('publication_status', { title: '档位类型', render: row => row.publication_status === 'formal' ? '正式档位' : '测试档位' }), column('description'), amounts],
+    defaults: { publication_status: 'test' },
+    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, {name:'publication_status',label:'档位类型',required:true,options:[option('test','测试档位'),option('formal','正式档位')],hint:'只有正式档位对外展示；测试通过后可切换为正式档位。'}, descriptionField],
+    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description, publication_status: d.publication_status }),
   }} />;
 }
 

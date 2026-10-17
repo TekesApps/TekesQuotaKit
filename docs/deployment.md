@@ -390,3 +390,12 @@ as enabled, false as disabled; it does not enable services or introduce incoming
 previews. Keep the boolean synchronized through the admin APIs. Before rolling
 back, drain/block writes and reconcile status and boolean; older versions do not
 understand incoming. Business verification for SKZY continues through Backend only.
+
+### 0.16.0 Level publication
+
+Back up the database before applying `migrations/add_level_publication_mysql.sql`.
+The migration preserves existing visibility as formal; newly created Levels default
+to test. Explicitly classify known internal test Levels in the business deployment
+plan before switching the service. SKZY classifies its existing VIP as test while
+星/银/金/铂金 remain formal. This classification belongs to the business deployment,
+not a name-based rule in QuotaKit or Backend. Auxiliary grants remain private.
