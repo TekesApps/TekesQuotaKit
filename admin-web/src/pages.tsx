@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Select, Switch, Tooltip } from 'antd';
+import { Select, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option, type UpdateRow } from './components';
 import { columnNames, type Row, text, time, formatNumber, formatPercent } from './types';
@@ -98,10 +98,11 @@ export function LevelsPage(props: PageProps) {
   } };
   return <ConfigPage {...props} spec={{
     searchKeys: ['level_code'], table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level', editable: true,
-    description: '会员等级。每个等级对各配额能用多少，在“等级额度”里配置；点击右侧的数量查看。',
-    columns: [column('level_code'), column('description'), amounts],
-    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, descriptionField],
-    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description }),
+    description: '新建默认测试档位，仅供内部配置和测试，不对外返回。验证后可转为正式档位，只有正式档位进入对外会员目录。各档额度在“等级额度”配置；特定用户附加额度不作为公开档位。',
+    columns: [column('level_code'), column('publication_status', { title: '档位类型', render: row => row.publication_status === 'formal' ? '正式档位' : '测试档位' }), column('description'), amounts],
+    defaults: { publication_status: 'test' },
+    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, {name:'publication_status',label:'档位类型',required:true,options:[option('test','测试档位'),option('formal','正式档位')],hint:'只有正式档位对外展示；测试通过后可切换为正式档位。'}, descriptionField],
+    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description, publication_status: d.publication_status }),
   }} />;
 }
 
@@ -147,13 +148,14 @@ export function LimitsPage(props: PageProps) {
   }} />;
 }
 
-function ServiceEnabledSwitch({ row, tenant, onSaved }: { row: Row; tenant: string; onSaved: (enabled: boolean) => void }) {
+const serviceStates = [option('enabled', '已开放'), option('incoming', '即将开放'), option('disabled', '隐藏停用')];
+function ServiceStatusSelect({ row, tenant, onSaved }: { row: Row; tenant: string; onSaved: (status: string) => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  return <div><Switch checked={row.enabled === true} loading={busy} checkedChildren="启用" unCheckedChildren="禁用" aria-label={`${String(row.service_code)} 启用状态`} onChange={async enabled => {
+  return <div><Select value={String(row.status)} options={serviceStates} loading={busy} disabled={busy} style={{ width: 180 }} aria-label={`${String(row.service_code)} 服务状态`} onChange={async status => {
     setBusy(true); setError('');
     try {
-      const saved = await api<{ enabled: boolean }>(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { enabled });
-      onSaved(saved.enabled);
+      const saved = await api<{ status: string }>(`/tenants/${enc(tenant)}/services/${enc(String(row.service_code))}/status`, 'PATCH', { status });
+      onSaved(saved.status);
     } catch (e) { setError(e instanceof Error ? e.message : '状态修改失败'); } finally { setBusy(false); }
   }} />{error && <div role="alert" className="error">{error}</div>}</div>;
 }
@@ -162,11 +164,11 @@ export function ServicesPage(props: PageProps) {
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
-    description: '关闭尚未开放的服务后，接口明确返回 service_disabled，权益查询标记 enabled: false。已有服务的结算、退款仍可完成。组合 Service 的子项在“组合成员”里配置。',
-    columns: updateRow => [column('service_code'), column('enabled', { render: row => <ServiceEnabledSwitch row={row} tenant={props.tenant} onSaved={enabled => updateRow(row.id, { enabled })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
-    defaults: { service_kind: 'atomic', redemption_mode: 'instant', enabled: true },
+    description: '已开放：可使用；即将开放：仅在包含该服务的套餐中展示预告，不可调用；隐藏停用：不向会员接口返回服务详情。套餐通过 Level 的正额度或不限量 Quota 包含服务，零额度或未配置则不展示。已有服务仍可结算和退款。',
+    columns: updateRow => [column('service_code'), column('status', { title: '服务状态', render: row => <ServiceStatusSelect row={row} tenant={props.tenant} onSaved={status => updateRow(row.id, { status, enabled: status === 'enabled' })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
+    defaults: { service_kind: 'atomic', redemption_mode: 'instant', status: 'enabled' },
     fields: [
-      { name: 'enabled', label: '启用服务', type: 'checkbox', hint: '关闭后禁止新调用；权益查询返回禁用状态，小程序应只展示已启用服务。' },
+      { name: 'status', label: '服务状态', required: true, options: serviceStates, hint: '即将开放仅预告；隐藏停用不向会员接口返回详情。套餐是否包含服务由 Level 的正额度或不限量配额决定。' },
       descriptionField,
       { name: 'service_code', label: 'Service code', required: true, key: true, placeholder: 'measurement_session' },
       { name: 'quota_code', label: 'Quota', options: quotas, hint: '子项可留空' },
@@ -176,7 +178,7 @@ export function ServicesPage(props: PageProps) {
       { name: 'session_ttl_seconds', label: '默认时长（秒）', type: 'number', min: 60, max: 86400, hint: '可留空' },
     ],
     save: (t, d) => put(`/tenants/${enc(t)}/services/${enc(required(d.service_code, 'Service code'))}`, {
-      enabled: d.enabled, description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
+      status: d.status, description: d.description, quota_code: d.quota_code || null, service_kind: d.service_kind, redemption_mode: d.redemption_mode || null,
       charge_units: d.charge_units, session_ttl_seconds: d.session_ttl_seconds,
     }),
   }} />;
@@ -342,12 +344,22 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const [offset, setOffset] = useState(0), [form, setForm] = useState<Row | null>(null);
   // The business system's stored user ID definition, prefilled so every credential quotes the same one.
   const [definition, setDefinition] = useState('');
+  const [definitionLoaded, setDefinitionLoaded] = useState(false), [definitionError, setDefinitionError] = useState('');
   useEffect(() => {
+    let active = true;
+    setDefinitionLoaded(false); setDefinitionError('');
     api<{ items: { tenant_id: string; subject_id_definition: string | null }[] }>('/tenants')
-      .then(r => setDefinition(r.items.find(t => t.tenant_id === tenant)?.subject_id_definition || ''))
-      .catch(() => setDefinition(''));
+      .then(r => {
+        if (!active) return;
+        setDefinition(r.items.find(t => t.tenant_id === tenant)?.subject_id_definition || '');
+        setDefinitionLoaded(true);
+      })
+      .catch(e => { if (active) setDefinitionError(e instanceof Error ? e.message : '业务系统设置读取失败，请刷新重试'); });
+    return () => { active = false; };
   }, [tenant, revision]);
-  const open = (row: Row) => setForm({ ...row, subject_id_definition: definition });
+  const open = (row: Row) => {
+    if (definitionLoaded && !definitionError) setForm({ ...row, subject_id_definition: definition });
+  };
   const [error, setError] = useState('');
   // Nothing in a rotation is editable (the client keeps its Service, role and the business
   // system's definition), so confirm and download straight away.
@@ -403,8 +415,9 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
     {error && <div className="error-box" role="alert">{error}</div>}
+    {definitionError && <div className="error-box" role="alert">{definitionError}，请刷新后重试</div>}
     <SearchBar keys={['client_id', 'service_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />

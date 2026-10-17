@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.13.3 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.14.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -370,3 +370,32 @@ Check all four columns before restarting; MySQL DDL commits per statement, so a 
 migration must be resumed from the missing columns rather than rerun blindly. Existing
 codes, assignments, policies and accounting are unchanged. Rollback code can leave the
 nullable columns in place. Fresh installs use `create_tables_mysql.sql`.
+
+
+### Upgrading to 0.14.0: business-verified membership purchases
+
+Back up the database and apply `migrations/add_membership_purchases_mysql.sql` once
+before starting 0.14.0. This adds the idempotency receipt table only; existing tables
+and assignments are not altered. Keep this additive table on code rollback. Main
+`membership` assignments shadow predecessors, so paid upgrades do not add the old
+Level's quota. Refund or expiry restores the predecessor's still-valid term. Explicit
+auxiliary Level packages retain their original stacking behavior. Production
+business traffic and verification must go through the business backend.
+
+### 0.15.0 service state migration
+
+Back up the full database, then apply `migrations/add_service_status_mysql.sql`
+once before deploying 0.15.0. It adds `tq_services.status` and backfills enabled=true
+as enabled, false as disabled; it does not enable services or introduce incoming
+previews. Keep the boolean synchronized through the admin APIs. Before rolling
+back, drain/block writes and reconcile status and boolean; older versions do not
+understand incoming. Business verification for SKZY continues through Backend only.
+
+### 0.16.0 Level publication
+
+Back up the database before applying `migrations/add_level_publication_mysql.sql`.
+The migration preserves existing visibility as formal; newly created Levels default
+to test. Explicitly classify known internal test Levels in the business deployment
+plan before switching the service. SKZY classifies its existing VIP as test while
+星/银/金/铂金 remain formal. This classification belongs to the business deployment,
+not a name-based rule in QuotaKit or Backend. Auxiliary grants remain private.

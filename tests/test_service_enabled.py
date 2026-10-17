@@ -35,6 +35,7 @@ def test_toggle_preserves_disabled_state_and_distinguishes_missing(tmp_path):
         "service_id": service_id,
         "service_code": "example.run",
         "enabled": False,
+        "status": "disabled",
     }
     # Old integrations saving the other fields must not silently turn the service on.
     response = client.put(
@@ -51,6 +52,7 @@ def test_toggle_preserves_disabled_state_and_distinguishes_missing(tmp_path):
         "service_id": service_id,
         "service_code": "example.run",
         "enabled": False,
+        "status": "disabled",
     }
     balance = client.get(
         "/v1/quota", headers={"Authorization": f"Bearer {ISSUER_KEY}", "X-Subject-ID": "42"}
@@ -89,7 +91,6 @@ def test_shared_entitlements_report_disabled_without_hiding_enabled_sibling(tmp_
     assert quota["services"] == ["sibling"]
     assert [s["service_code"] for s in quota["service_balances"]] == ["sibling"]
     assert {s["service_code"]: s["enabled"] for s in quota["service_details"]} == {
-        "example.run": False,
         "sibling": True,
     }
     # The key is tenant-scoped and does not grant Service clients member-list access.

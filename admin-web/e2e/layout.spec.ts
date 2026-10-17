@@ -393,95 +393,60 @@ test('large limits use thousands separators while editors keep numeric values', 
 });
 
 
-test('service switch persists and editing notes cannot silently re-enable it', async ({ page }) => {
+async function openServiceStatus(page: Page) {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
   await page.getByLabel('密码').fill('e2e-console-password');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
-  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
-  await expect(toggle).toBeChecked();
-  const before = await toggle.boundingBox();
-  expect(before!.height).toBe(22);
-  const originalRow = await toggle.locator('xpath=ancestor::tr').elementHandle();
-  const originalSwitch = await toggle.elementHandle();
-  const reads: string[] = [];
-  page.on('request', request => { if (request.method() === 'GET' && request.url().includes('/v1/admin/')) reads.push(request.url()); });
-  await toggle.scrollIntoViewIfNeeded();
-  const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
-  await toggle.click();
-  await expect(toggle).not.toBeChecked();
-  await expect(toggle).toBeEnabled();
-  expect(reads).toEqual([]);
-  expect(await originalRow!.evaluate(el => el.isConnected)).toBe(true);
-  expect(await originalSwitch!.evaluate(el => el.isConnected)).toBe(true);
-  expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(scroll);
-  // Opening the editor immediately must read the row's new state, without a refresh.
-  await toggle.locator('xpath=ancestor::tr').getByRole('button', { name: '操作菜单' }).click();
-  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
-  await expect(page.getByLabel('启用服务', { exact: false })).not.toBeChecked();
-  await page.locator('.drawer-head button').click();
-  await page.reload();
-  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
-  await expect(toggle).not.toBeChecked();
-  const row = page.locator('tbody tr').filter({ has: toggle });
+  const control = page.getByRole('combobox', { name: 'medication_ai 服务状态', exact: true });
+  const row = page.locator('tbody tr').filter({ has: control });
+  return { control, row };
+}
+async function chooseServiceStatus(page: Page, control: ReturnType<Page['getByRole']>, label: string) {
+  await control.click();
+  await page.locator('.ant-select-dropdown').getByText(label, { exact: true }).click();
+  await expect(control).toBeEnabled();
+}
+
+test('incoming service status persists through notes edit and page reload', async ({ page }) => {
+  const {control, row} = await openServiceStatus(page);
+  await chooseServiceStatus(page, control, '即将开放（incoming）');
+  await expect(row).toContainText('即将开放（incoming）');
   await row.getByRole('button', { name: '操作菜单' }).click();
   await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
-  await expect(page.getByLabel('启用服务', { exact: false })).not.toBeChecked();
+  await expect(page.locator('.drawer-panel')).toContainText('即将开放（incoming）');
   await page.locator('.drawer-panel').getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.locator('.drawer-panel')).toHaveCount(0);
-  await expect(toggle).not.toBeChecked();
-  await page.screenshot({ path: 'test-results/service-disabled.png', fullPage: true });
-  await toggle.click();
-  await expect(toggle).toBeChecked();
+  await page.reload();
+  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
+  await expect(row).toContainText('即将开放（incoming）');
+  await page.screenshot({path:'test-results/service-incoming.png',fullPage:true});
+  await chooseServiceStatus(page, control, '已开放（enabled）');
 });
 
-
-test('enabled and disabled switch text and handle are vertically centered', async ({ page }) => {
-  await page.goto('/user-quota/admin');
-  await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
-  await page.getByRole('button', { name: /登录管理平台/ }).click();
-  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
-  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
-  for (const enabled of [false, true]) {
-    await toggle.click();
-    await expect(toggle).toBeChecked({ checked: enabled });
-    await expect.poll(() => toggle.evaluate(el => {
-      const checked = el.getAttribute('aria-checked') === 'true';
-      const track = el.getBoundingClientRect();
-      const label = el.querySelector(checked ? '.ant-switch-inner-checked' : '.ant-switch-inner-unchecked')!;
-      const range = document.createRange(); range.selectNodeContents(label);
-      const text = range.getBoundingClientRect();
-      const handle = el.querySelector('.ant-switch-handle')!.getBoundingClientRect();
-      const center = (track.top + track.bottom) / 2;
-      return Math.max(Math.abs((text.top + text.bottom) / 2 - center), Math.abs((handle.top + handle.bottom) / 2 - center));
-    })).toBeLessThanOrEqual(1);
+test('all three service states save without replacing the row', async ({ page }) => {
+  const {control, row} = await openServiceStatus(page);
+  const originalRow = await row.elementHandle();
+  for (const label of ['隐藏停用（disabled）', '即将开放（incoming）', '已开放（enabled）']) {
+    await chooseServiceStatus(page, control, label);
+    await expect(row).toContainText(label);
+    expect(await originalRow!.evaluate(el => el.isConnected)).toBe(true);
   }
 });
 
-
-test('failed switch save keeps its previous value and retries without refreshing', async ({ page }) => {
-  await page.goto('/user-quota/admin');
-  await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
-  await page.getByRole('button', { name: /登录管理平台/ }).click();
-  await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
-  const toggle = page.getByRole('switch', { name: 'medication_ai 启用状态', exact: true });
-  await expect(toggle).toBeChecked();
+test('failed service status save preserves the original value and retries', async ({ page }) => {
+  const {control,row} = await openServiceStatus(page);
   await page.route('**/services/medication_ai/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: '测试保存失败' }) }));
-  await toggle.click();
+  await chooseServiceStatus(page, control, '即将开放（incoming）');
   await expect(page.getByRole('alert')).toContainText('测试保存失败');
-  await expect(toggle).toBeChecked();
-  await expect(toggle).toBeEnabled();
+  await expect(row).toContainText('已开放（enabled）');
   await page.unroute('**/services/medication_ai/status');
-  await toggle.click();
-  await expect(toggle).not.toBeChecked();
+  await chooseServiceStatus(page, control, '即将开放（incoming）');
+  await expect(row).toContainText('即将开放（incoming）');
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await toggle.click();
-  await expect(toggle).toBeChecked();
+  await chooseServiceStatus(page, control, '已开放（enabled）');
 });
-
 
 test('usage formats thousands, current caps and consumed percentages including unlimited and zero', async ({ page }) => {
   await page.goto('/user-quota/admin');
@@ -536,4 +501,59 @@ test('usage defaults to highest consumption and can switch order while keeping f
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: '从高到低' }).click();
   await expect(ids).toHaveText(['10142', '10139', '10141', '10140']);
   await page.screenshot({ path: 'test-results/usage-sorted.png', fullPage: true });
+});
+
+
+test('Level test/formal publication survives editing and can be reversed', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.locator('.nav-btn').filter({ hasText: 'Level 等级' }).click();
+  const row=page.locator('tbody tr').filter({ has:page.getByRole('cell',{name:'basic',exact:true}) });
+  for(const [label,text] of [['正式档位（formal）','正式档位'],['测试档位（test）','测试档位']]) {
+    await row.getByRole('button',{name:'操作菜单'}).click();
+    await page.getByRole('menuitem',{name:'编辑',exact:true}).click();
+    await page.getByLabel('档位类型',{exact:false}).click();
+    await page.locator('.ant-select-dropdown').getByText(label,{exact:true}).click();
+    await page.locator('.drawer-panel').getByRole('button',{name:'保存',exact:true}).click();
+    await expect(page.locator('.drawer-panel')).toHaveCount(0);
+    await expect(row).toContainText(text);
+    await page.reload();
+    await page.locator('.nav-btn').filter({hasText:'Level 等级'}).click();
+    await expect(row).toContainText(text);
+  }
+  await page.screenshot({path:'test-results/level-publication.png',fullPage:true});
+});
+
+
+test('credential issuance waits for stored identity settings and fails closed on read errors', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await expect(page.getByText('端到端测试', {exact:true})).toBeVisible();
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/v1/admin/tenants', async route => {
+    await ready;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({items:[{tenant_id:'e2e-business',subject_id_definition:'synthetic_user.id'}]})});
+  });
+  await page.getByRole('button', { name: '客户端凭据', exact:true }).click();
+  const issue=page.getByRole('button',{name:'签发会员同步凭据',exact:true});
+  try {
+    await expect(issue).toBeDisabled();
+    await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  } finally { release(); }
+  await expect(issue).toBeEnabled();
+  await issue.click();
+  await expect(page.getByLabel('用户 ID 定义',{exact:false})).toHaveValue('synthetic_user.id');
+  await expect(page.getByLabel('用户 ID 定义',{exact:false})).toBeDisabled();
+  await page.locator('.drawer-head button').click();
+  await page.unroute('**/v1/admin/tenants');
+  await page.route('**/v1/admin/tenants', route => route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'测试设置读取失败'})}));
+  await page.getByRole('button',{name:'Level 等级',exact:true}).click();
+  await page.getByRole('button',{name:'客户端凭据',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('测试设置读取失败');
+  await expect(issue).toBeDisabled();
 });
