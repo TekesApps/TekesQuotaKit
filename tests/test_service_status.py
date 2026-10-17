@@ -64,7 +64,8 @@ def test_migration_preserves_existing_switches_without_incoming_promises():
 
     db = sqlite3.connect(":memory:")
     db.executescript(
-        "CREATE TABLE tq_services(id INTEGER, enabled BOOL); INSERT INTO tq_services VALUES (1,1),(2,0);"
+        "CREATE TABLE tq_services(id INTEGER, enabled BOOL);"
+        "INSERT INTO tq_services VALUES (1,1),(2,0);"
     )
     db.executescript(
         (Path(__file__).parents[1] / "migrations/add_service_status_mysql.sql").read_text()
