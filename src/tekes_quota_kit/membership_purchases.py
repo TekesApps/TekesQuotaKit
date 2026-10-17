@@ -13,9 +13,10 @@ class MembershipPurchases:
         from .models import Limit
 
         subject = _subject(subject)
-        now = utc_now()
         with self.sessions.begin() as db:
             state = self._lock_subject(db, tenant, subject)
+            # Evaluate the latest membership after waiting for competing subject writes.
+            now = utc_now()
             receipt = db.scalar(
                 select(MembershipPurchase)
                 .where(

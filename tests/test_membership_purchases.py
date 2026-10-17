@@ -108,3 +108,26 @@ def test_business_api_credentials_validate_payload_and_are_tenant_scoped(tmp_pat
     assert client.put(path, headers=auth, json={**data, "period_days": True}).status_code == 422
     assert client.post(path + "/revoke", headers=auth, json=data).json()["status"] == "revoked"
     assert kit.membership(TENANT, "42")["level_code"] == "星会员"
+
+
+def test_waiting_purchase_checks_membership_at_lock_acquisition(tmp_path):
+    from unittest.mock import patch
+
+    kit, _ = fixture(tmp_path)
+    lock = kit._lock_subject
+
+    def competing_purchase(db, tenant, subject):
+        # Another checkout finishes after this request starts, before its lock is acquired.
+        with patch.object(kit, "_lock_subject", side_effect=lock):
+            kit.membership_purchase(TENANT, "42", "first-silver", "银会员", "星会员", 365)
+        return lock(db, tenant, subject)
+
+    with patch.object(kit, "_lock_subject", side_effect=competing_purchase):
+        with pytest.raises(QuotaError, match="changed"):
+            kit.membership_purchase(TENANT, "42", "stale-gold", "金会员", "星会员", 365)
+    assert kit.membership(TENANT, "42")["level_code"] == "银会员"
+    with kit.sessions() as db:
+        assert db.scalar(select(func.count()).select_from(MembershipPurchase)) == 1
+    # Reconfirming the newly current Level allows a legitimate higher upgrade.
+    kit.membership_purchase(TENANT, "42", "confirmed-gold", "金会员", "银会员", 365)
+    assert kit.membership(TENANT, "42")["level_code"] == "金会员"
