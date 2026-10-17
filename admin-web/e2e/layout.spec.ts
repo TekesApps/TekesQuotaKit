@@ -525,3 +525,35 @@ test('Level test/formal publication survives editing and can be reversed', async
   }
   await page.screenshot({path:'test-results/level-publication.png',fullPage:true});
 });
+
+
+test('credential issuance waits for stored identity settings and fails closed on read errors', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await expect(page.getByText('端到端测试', {exact:true})).toBeVisible();
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/v1/admin/tenants', async route => {
+    await ready;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({items:[{tenant_id:'e2e-business',subject_id_definition:'synthetic_user.id'}]})});
+  });
+  await page.getByRole('button', { name: '客户端凭据', exact:true }).click();
+  const issue=page.getByRole('button',{name:'签发会员同步凭据',exact:true});
+  try {
+    await expect(issue).toBeDisabled();
+    await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  } finally { release(); }
+  await expect(issue).toBeEnabled();
+  await issue.click();
+  await expect(page.getByLabel('用户 ID 定义',{exact:false})).toHaveValue('synthetic_user.id');
+  await expect(page.getByLabel('用户 ID 定义',{exact:false})).toBeDisabled();
+  await page.locator('.drawer-head button').click();
+  await page.unroute('**/v1/admin/tenants');
+  await page.route('**/v1/admin/tenants', route => route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'测试设置读取失败'})}));
+  await page.getByRole('button',{name:'Level 等级',exact:true}).click();
+  await page.getByRole('button',{name:'客户端凭据',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('测试设置读取失败');
+  await expect(issue).toBeDisabled();
+});

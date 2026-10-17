@@ -344,12 +344,22 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const [offset, setOffset] = useState(0), [form, setForm] = useState<Row | null>(null);
   // The business system's stored user ID definition, prefilled so every credential quotes the same one.
   const [definition, setDefinition] = useState('');
+  const [definitionLoaded, setDefinitionLoaded] = useState(false), [definitionError, setDefinitionError] = useState('');
   useEffect(() => {
+    let active = true;
+    setDefinitionLoaded(false); setDefinitionError('');
     api<{ items: { tenant_id: string; subject_id_definition: string | null }[] }>('/tenants')
-      .then(r => setDefinition(r.items.find(t => t.tenant_id === tenant)?.subject_id_definition || ''))
-      .catch(() => setDefinition(''));
+      .then(r => {
+        if (!active) return;
+        setDefinition(r.items.find(t => t.tenant_id === tenant)?.subject_id_definition || '');
+        setDefinitionLoaded(true);
+      })
+      .catch(e => { if (active) setDefinitionError(e instanceof Error ? e.message : '业务系统设置读取失败，请刷新重试'); });
+    return () => { active = false; };
   }, [tenant, revision]);
-  const open = (row: Row) => setForm({ ...row, subject_id_definition: definition });
+  const open = (row: Row) => {
+    if (definitionLoaded && !definitionError) setForm({ ...row, subject_id_definition: definition });
+  };
   const [error, setError] = useState('');
   // Nothing in a rotation is editable (the client keeps its Service, role and the business
   // system's definition), so confirm and download straight away.
@@ -405,8 +415,9 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
     {error && <div className="error-box" role="alert">{error}</div>}
+    {definitionError && <div className="error-box" role="alert">{definitionError}，请刷新后重试</div>}
     <SearchBar keys={['client_id', 'service_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
