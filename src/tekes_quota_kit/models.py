@@ -414,3 +414,23 @@ class PackageCharge(Base):
         ForeignKeyConstraint(["token_id"], ["tq_tokens.id"]),
         ForeignKeyConstraint(["grant_id"], ["tq_package_grants.id"]),
     )
+
+
+class MembershipPurchase(Base):
+    """Idempotency receipt for a business-verified membership order, not a payment record."""
+
+    __tablename__ = "tq_membership_purchases"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    order_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    level_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_level: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    assignment_id: Mapped[int | None] = mapped_column(ID_TYPE)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "order_code", name="uq_tq_membership_purchase"),
+        ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
+    )

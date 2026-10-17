@@ -49,7 +49,18 @@ class LevelPackages:
             )
             .order_by(Assignment.sort_order, Assignment.id)
         )
-        return list(db.scalars(query.with_for_update() if lock else query))
+        rows = list(db.scalars(query.with_for_update() if lock else query))
+        # Purchased main memberships shadow their predecessors, rather than stacking quotas.
+        # Keeping the predecessor intact restores its remaining term after refund or expiry.
+        main_seen = False
+        visible = []
+        for row in rows:
+            if row.package_code == "membership":
+                if main_seen:
+                    continue
+                main_seen = True
+            visible.append(row)
+        return visible
 
     @staticmethod
     def _package_usage(db, assignment, quota, start, end, *, lock=False):

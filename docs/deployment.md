@@ -1,6 +1,6 @@
 # Deploying TekesQuotaKit
 
-This guide covers running TekesQuotaKit 0.13.3 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
+This guide covers running TekesQuotaKit 0.14.0 in production: requirements, configuration, schema setup, process management, scheduled maintenance, operations, and a security checklist. For the HTTP interface see [api.md](api.md).
 
 ## Requirements
 
@@ -370,3 +370,14 @@ Check all four columns before restarting; MySQL DDL commits per statement, so a 
 migration must be resumed from the missing columns rather than rerun blindly. Existing
 codes, assignments, policies and accounting are unchanged. Rollback code can leave the
 nullable columns in place. Fresh installs use `create_tables_mysql.sql`.
+
+
+### Upgrading to 0.14.0: business-verified membership purchases
+
+Back up the database and apply `migrations/add_membership_purchases_mysql.sql` once
+before starting 0.14.0. This adds the idempotency receipt table only; existing tables
+and assignments are not altered. Keep this additive table on code rollback. Main
+`membership` assignments shadow predecessors, so paid upgrades do not add the old
+Level's quota. Refund or expiry restores the predecessor's still-valid term. Explicit
+auxiliary Level packages retain their original stacking behavior. Production
+business traffic and verification must go through the business backend.

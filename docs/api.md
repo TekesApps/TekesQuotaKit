@@ -799,3 +799,30 @@ Only finite positive current-period caps have a sortable ratio. Unknown/historic
 unlimited and zero caps always sort last; ties use descending record ID. The ratio
 is not rounded for sorting even though the console displays one decimal place.
 No schema migration or accounting/configuration change is required.
+
+
+### GET /v1/membership/catalog
+
+Requires a membership-role client. Returns the current tenant's Level descriptions,
+Limit values/periods/timezones, Quota units and Service enabled flags under schema
+`tekes-quotakit-membership-catalog/v1`, with `Cache-Control: no-store`. No members,
+usage, assignments, client secrets or cross-tenant configuration are included.
+Reads do not assign membership or consume quota. Business backends may project
+this into their own public catalog; clients should call that business backend.
+The quota catalog does not define checkout products, authoritative order prices,
+renewal policy or payment fulfillment; these remain the business system's responsibility.
+
+
+### Business-verified membership purchase delivery
+
+Membership credentials can call `PUT /v1/members/{subject_id}/purchases/{order_code}`
+with `level_code`, `expected_level` and integer `period_days`. The business backend
+must first verify the payment and upgrade eligibility. The tenant/order identity is
+immutable and repeated requests return the same durable receipt. A changed current
+Level rejects a different order rather than silently downgrading a later purchase.
+
+`POST /v1/members/{subject_id}/purchases/{order_code}/revoke` takes the same identity
+and records a refund tombstone even before delivery. Repeated refunds are safe; a
+late payment callback cannot revive a refunded purchase. Only the exact purchased
+assignment is revoked; later purchases and auxiliary Level packages are preserved.
+The business backend owns order price, full-refund policy and provider signatures.

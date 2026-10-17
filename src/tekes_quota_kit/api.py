@@ -74,6 +74,12 @@ class MemberRequest(BaseModel):
     renew_term: bool = False
 
 
+class MembershipPurchaseRequest(BaseModel):
+    level_code: str = Field(min_length=1, max_length=64)
+    expected_level: str = Field(min_length=1, max_length=64)
+    period_days: int = Field(ge=1, le=3660, strict=True)
+
+
 class MemberItem(MemberRequest):
     subject_id: SubjectId
 
@@ -442,6 +448,51 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     @app.get("/v1/tokens/unsettled")
     def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
         return kit.unsettled(caller)
+
+    @app.get("/v1/membership/catalog")
+    def membership_catalog(caller: Annotated[Client, Depends(membership)]) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_catalog(caller.tenant_id), headers={"Cache-Control": "no-store"}
+        )
+
+    @app.put("/v1/members/{subject_id}/purchases/{order_code}")
+    def grant_membership_purchase(
+        subject_id: SubjectId,
+        order_code: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        payload: MembershipPurchaseRequest,
+        caller: Annotated[Client, Depends(membership)],
+    ) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_purchase(
+                caller.tenant_id,
+                subject_id,
+                order_code,
+                payload.level_code,
+                payload.expected_level,
+                payload.period_days,
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/v1/members/{subject_id}/purchases/{order_code}/revoke")
+    def revoke_membership_purchase(
+        subject_id: SubjectId,
+        order_code: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        payload: MembershipPurchaseRequest,
+        caller: Annotated[Client, Depends(membership)],
+    ) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_purchase(
+                caller.tenant_id,
+                subject_id,
+                order_code,
+                payload.level_code,
+                payload.expected_level,
+                payload.period_days,
+                revoke=True,
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
 
     # Member sync: a `membership` client keeps the member list of its own business system.
     @app.put("/v1/members/{subject_id}")

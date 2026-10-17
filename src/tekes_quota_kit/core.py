@@ -16,6 +16,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from .level_packages import LevelPackages
+from .membership_purchases import MembershipPurchases
 from .models import (
     Assignment,
     Client,
@@ -143,7 +144,7 @@ def _period(
     return start.astimezone(UTC).replace(tzinfo=None), end.astimezone(UTC).replace(tzinfo=None)
 
 
-class QuotaKit(LevelPackages):
+class QuotaKit(LevelPackages, MembershipPurchases):
     """MySQL-backed authority. Database URL points at the consumer's existing schema."""
 
     def __init__(self, database_url: str, token_secret: str) -> None:
@@ -918,6 +919,61 @@ class QuotaKit(LevelPackages):
                         row.term_end = now
             state.revision += 1
             return True
+
+    def membership_catalog(self, tenant: str) -> dict:
+        """Tenant-scoped configuration only: no members, usage or client credentials."""
+        with self.sessions() as db:
+            levels = db.scalars(
+                select(Level).where(Level.tenant_id == tenant).order_by(Level.level_code)
+            ).all()
+            limits = db.scalars(
+                select(Limit).where(Limit.tenant_id == tenant).order_by(Limit.quota_code)
+            ).all()
+            quotas = db.scalars(
+                select(Quota).where(Quota.tenant_id == tenant).order_by(Quota.quota_code)
+            ).all()
+            services = db.scalars(
+                select(Service).where(Service.tenant_id == tenant).order_by(Service.service_code)
+            ).all()
+            return {
+                "schema": "tekes-quotakit-membership-catalog/v1",
+                "levels": [
+                    {
+                        "code": level.level_code,
+                        "description": level.description or "",
+                        "limits": [
+                            {
+                                "quotaCode": rule.quota_code,
+                                "mode": rule.limit_mode,
+                                "value": rule.limit_value,
+                                "period": rule.period_kind,
+                                "timezone": rule.timezone,
+                                "description": rule.description or "",
+                            }
+                            for rule in limits
+                            if rule.level_code == level.level_code
+                        ],
+                    }
+                    for level in levels
+                ],
+                "quotas": [
+                    {
+                        "code": quota.quota_code,
+                        "unit": quota.unit_code,
+                        "description": quota.description or "",
+                    }
+                    for quota in quotas
+                ],
+                "services": [
+                    {
+                        "code": service.service_code,
+                        "quotaCode": service.quota_code,
+                        "enabled": service.enabled,
+                        "description": service.description or "",
+                    }
+                    for service in services
+                ],
+            }
 
     def membership(self, tenant: str, subject: int | str) -> dict | None:
         """The subject's current assignment, or None when the subject has no active Level."""
