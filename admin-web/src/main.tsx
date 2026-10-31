@@ -11,8 +11,8 @@ import './login.css';
 import './antd-overrides.css';
 
 const navigation: NavigationGroup[] = [
-  { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 配额'], ['levels', 'Level 等级'], ['limits', '等级额度'], ['default_plans', '默认方案']] },
-  { label: '用户与接入', items: [['business', '业务系统'], ['assignments', '用户等级'], ['clients', '客户端凭据']] },
+  { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 配额'], ['levels', '会员档位'], ['limits', '档位额度'], ['default_plans', '权益方案']] },
+  { label: '用户与接入', items: [['business', '业务系统'], ['assignments', '用户权益'], ['clients', '客户端凭据']] },
   { label: '运行数据', items: [['usage', '用量'], ['tokens', '凭证'], ['token_items', '场次明细'], ['ledger', '流水']] },
 ];
 const TENANT_KEY = 'tq-admin-tenant';
@@ -29,7 +29,7 @@ function Login({ onLogin, initialError }: { onLogin: (user: User) => void; initi
     catch (e) { setError(e instanceof Error ? e.message : '登录失败'); } finally { setBusy(false); }
   }
   return <main className="login">
-    <section className="login-story"><div className="wordmark">✳ TekesQuotaKit <span>ADMIN</span></div><div><p className="eyebrow">SERVICE QUOTA OPERATIONS</p><h1>让每一次服务，<br/>有据可依。</h1><p>服务、配额、会员等级与接入凭据的统一管理工作台。</p></div><small>TekesQuotaKit 配额管理</small></section>
+    <section className="login-story"><div className="wordmark">✳ TekesQuotaKit <span>ADMIN</span></div><div><p className="eyebrow">SERVICE QUOTA OPERATIONS</p><h1>让每一次服务，<br/>有据可依。</h1><p>服务、配额、会员档位与接入凭据的统一管理工作台。</p></div><small>TekesQuotaKit 配额管理</small></section>
     <section className="login-panel"><form onSubmit={submit}><div className="tag">管理人员入口</div><h2>登录工作台</h2><p className="muted">使用配额管理账号登录</p>{error && <p role="alert" className="error">{error}</p>}<label>账号<input name="username" required autoComplete="username" maxLength={100} /></label><label>密码<input name="password" type="password" required autoComplete="current-password" maxLength={128} /></label><button className="primary" disabled={busy}>{busy ? '正在登录…' : '登录管理平台 →'}</button></form></section>
   </main>;
 }

@@ -76,7 +76,7 @@ const descriptionField: Field = {
 export function QuotasPage(props: PageProps) {
   return <ConfigPage {...props} spec={{
     searchKeys: ['quota_code'], table: 'tq_quotas', title: 'Quota 配额', addLabel: '新增 Quota', editable: true,
-    description: '计什么，例如开门次数、测量次数。这里不含数量，每个等级能用多少在“等级额度”里配置。创建后单位和计量方式不能修改。',
+    description: '计什么，例如开门次数、测量次数。这里不含数量，每个会员档位能用多少在“档位额度”里配置。创建后单位和计量方式不能修改。',
     columns: ['quota_code', 'description', 'unit_code', 'metering_mode'].map(k => column(k)),
     defaults: { unit_code: 'use', metering_mode: 'per_use' },
     fields: [
@@ -92,17 +92,17 @@ export function QuotasPage(props: PageProps) {
 export function LevelsPage(props: PageProps) {
   const limits = useTable('tq_limits', props.tenant, props.revision, 0, 200);
   const perLevel = (code: unknown) => limits.rows.filter(r => r.level_code === code).length;
-  const amounts: Column = { key: '_limits', title: '等级额度', render: row => {
+  const amounts: Column = { key: '_limits', title: '档位额度', render: row => {
     const n = perLevel(row.level_code);
     return <button type="button" className="ghost" onClick={() => props.onNavigate?.('limits', { level_code: row.level_code })}>{limits.loading ? '…' : n ? `${n} 项配额 →` : '未配置，去添加 →'}</button>;
   } };
   return <ConfigPage {...props} spec={{
-    searchKeys: ['level_code'], table: 'tq_levels', title: 'Level 等级', addLabel: '新增 Level', editable: true,
-    description: '新建默认测试档位，仅供内部配置和测试，不对外返回。验证后可转为正式档位，只有正式档位进入对外会员目录。各档额度在“等级额度”配置；特定用户附加额度不作为公开档位。',
+    searchKeys: ['level_code'], table: 'tq_levels', title: '会员档位', addLabel: '新增会员档位', editable: true,
+    description: '新建默认测试档位，仅供内部配置和测试，不对外返回。验证后可转为正式档位，只有正式档位进入对外会员目录。各档额度在“档位额度”配置；特定用户附加额度不作为公开档位。',
     columns: [column('level_code'), column('publication_status', { title: '档位类型', render: row => row.publication_status === 'formal' ? '正式档位' : '测试档位' }), column('description'), amounts],
     defaults: { publication_status: 'test' },
-    fields: [{ name: 'level_code', label: 'Level code', required: true, key: true, placeholder: 'basic' }, {name:'publication_status',label:'档位类型',required:true,options:[option('test','测试档位'),option('formal','正式档位')],hint:'只有正式档位对外展示；测试通过后可切换为正式档位。'}, descriptionField],
-    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level code'))}`, { description: d.description, publication_status: d.publication_status }),
+    fields: [{ name: 'level_code', label: '档位标识', required: true, key: true, placeholder: 'basic' }, {name:'publication_status',label:'档位类型',required:true,options:[option('test','测试档位'),option('formal','正式档位')],hint:'只有正式档位对外展示；测试通过后可切换为正式档位。'}, descriptionField],
+    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, '档位标识'))}`, { description: d.description, publication_status: d.publication_status }),
   }} />;
 }
 
@@ -130,20 +130,20 @@ export function LimitsPage(props: PageProps) {
   const levels = useCodes('tq_levels', 'level_code', props.tenant, props.revision);
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} section={section} spec={{
-    searchKeys: ['level_code', 'quota_code'], table: 'tq_limits', title: '等级额度', addLabel: '新增等级额度', editable: true,
-    description: '所有用户额度包共用这里的 Level 额度定义，同一 Level 可配置多项 Quota。关联 Service 显示使用此配额的服务；悬停或聚焦 ⓘ 查看服务说明，额度说明记录本等级的权益规则。创建后周期和时区不能修改。',
+    searchKeys: ['level_code', 'quota_code'], table: 'tq_limits', title: '档位额度', addLabel: '新增档位额度', editable: true,
+    description: '所有会员权益共用这里的会员档位额度定义，同一会员档位可配置多项 Quota。关联 Service 显示使用此配额的服务；悬停或聚焦 ⓘ 查看服务说明，额度说明记录本档位的权益规则。创建后周期和时区不能修改。',
     columns: [column('level_code'), column('quota_code'), serviceColumn, noteColumn, ...['limit_mode', 'limit_value', 'period_kind', 'timezone'].map(k => column(k))],
     defaults: { limit_mode: 'finite', period_kind: 'month', timezone: 'Asia/Shanghai' },
     fields: [
-      { ...descriptionField, label: '额度说明', hint: '填写此等级对应配额的权益规则，不是 Service 自身的说明。最多 2000 字。' },
-      { name: 'level_code', label: 'Level', required: true, key: true, options: levels },
+      { ...descriptionField, label: '额度说明', hint: '填写此档位对应配额的权益规则，不是 Service 自身的说明。最多 2000 字。' },
+      { name: 'level_code', label: '会员档位', required: true, key: true, options: levels },
       { name: 'quota_code', label: 'Quota', required: true, key: true, options: quotas },
       { name: 'limit_mode', label: '限额方式', required: true, options: [option('finite', '有限'), option('unlimited', '不限')] },
       { name: 'limit_value', label: '限额', type: 'number', min: 0, hint: '不限时留空' },
       { name: 'period_kind', label: '周期', required: true, options: [option('day', '每日'), option('week', '每周（周一 0 点重置）'), option('month', '每月'), option('level_term', '会员期')] },
       { name: 'timezone', label: '时区', required: true },
     ],
-    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, 'Level'))}/limits/${enc(required(d.quota_code, 'Quota'))}`,
+    save: (t, d) => put(`/tenants/${enc(t)}/levels/${enc(required(d.level_code, '会员档位'))}/limits/${enc(required(d.quota_code, 'Quota'))}`,
       { limit_mode: d.limit_mode, limit_value: d.limit_mode === 'unlimited' ? null : d.limit_value, period_kind: d.period_kind, timezone: d.timezone, description: d.description }),
   }} />;
 }
@@ -164,11 +164,11 @@ export function ServicesPage(props: PageProps) {
   const quotas = useCodes('tq_quotas', 'quota_code', props.tenant, props.revision);
   return <ConfigPage {...props} spec={{
     searchKeys: ['service_code', 'quota_code'], table: 'tq_services', title: 'Service 服务', addLabel: '新增 Service', editable: true,
-    description: '已开放：可使用；即将开放：仅在包含该服务的套餐中展示预告，不可调用；隐藏停用：不向会员接口返回服务详情。套餐通过 Level 的正额度或不限量 Quota 包含服务，零额度或未配置则不展示。已有服务仍可结算和退款。',
+    description: '已开放：可使用；即将开放：仅在包含该服务的套餐中展示预告，不可调用；隐藏停用：不向会员接口返回服务详情。套餐通过会员档位的正额度或不限量 Quota 包含服务，零额度或未配置则不展示。已有服务仍可结算和退款。',
     columns: updateRow => [column('service_code'), column('status', { title: '服务状态', render: row => <ServiceStatusSelect row={row} tenant={props.tenant} onSaved={status => updateRow(row.id, { status, enabled: status === 'enabled' })} /> }), ...['description', 'service_kind', 'redemption_mode', 'quota_code', 'charge_units', 'session_ttl_seconds'].map(k => column(k)), column('id', { title: 'service_id' })],
     defaults: { service_kind: 'atomic', redemption_mode: 'instant', status: 'enabled' },
     fields: [
-      { name: 'status', label: '服务状态', required: true, options: serviceStates, hint: '即将开放仅预告；隐藏停用不向会员接口返回详情。套餐是否包含服务由 Level 的正额度或不限量配额决定。' },
+      { name: 'status', label: '服务状态', required: true, options: serviceStates, hint: '即将开放仅预告；隐藏停用不向会员接口返回详情。套餐是否包含服务由会员档位的正额度或不限量配额决定。' },
       descriptionField,
       { name: 'service_code', label: 'Service code', required: true, key: true, placeholder: 'measurement_session' },
       { name: 'quota_code', label: 'Quota', options: quotas, hint: '子项可留空' },
@@ -236,10 +236,10 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
     event.preventDefault(); setBusy(true); setError('');
     try {
       if (!validSubjectId(subjectId)) throw new Error('请填写有效用户 ID');
-      if (packages.some(p => !p.level_code)) throw new Error('请选择每份包的等级');
+      if (packages.some(p => !p.level_code)) throw new Error('请选择每项权益的会员档位');
       let revision = version;
       if (subject == null) {
-        if (!packages.length) throw new Error('请至少添加一份额度包');
+        if (!packages.length) throw new Error('请至少添加一项会员权益');
         const existing = await api<UserPackages>(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`);
         if (existing.packages.length) throw new Error('该用户已有记录，请在用户列表中编辑');
         revision = existing.revision;
@@ -247,22 +247,22 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
       await put(`/tenants/${enc(tenant)}/subjects/${enc(subjectId)}/level-packages`, {
         revision, packages: packages.map(p => ({ id: p.id, level_code: p.level_code, effective_at: p.effective_at, expires_at: p.expires_at })),
       });
-      onChanged('已保存用户额度包与扣费顺序'); onClose();
+      onChanged('已保存用户权益与扣费顺序'); onClose();
     } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); } finally { setBusy(false); }
   }
-  return <Drawer title={subject == null ? '设置用户额度包' : '编辑用户额度包'} onClose={() => { if (!busy) onClose(); }}>
+  return <Drawer title={subject == null ? '设置用户权益' : '编辑用户权益'} onClose={() => { if (!busy) onClose(); }}>
     <form onSubmit={save}>
       <label>用户 ID<input type="text" required disabled={subject != null || busy} value={subjectId} onChange={e => setSubjectId(e.target.value)} /></label>
-      <p className="muted">从上往下扣费，跳过不支持服务、未生效、已过期或用完的包。调序保留已用额度；移除保留消费历史。额度定义在“等级额度”维护。</p>
+      <p className="muted">从上往下扣费，跳过不支持服务、未生效、已过期或用完的包。调序保留已用额度；移除保留消费历史。额度定义在“档位额度”维护。</p>
       {error && <div className="error-box" role="alert">{error}</div>}
       {loading ? <p className="muted">正在加载…</p> : <>
-        {packages.map((pack, index) => <section className="user-package" key={pack.id ?? `new-${index}`} aria-label={`额度包 ${index + 1}`}>
+        {packages.map((pack, index) => <section className="user-package" key={pack.id ?? `new-${index}`} aria-label={`会员权益 ${index + 1}`}>
           <div className="toolbar"><strong>扣费顺序 {index + 1}</strong><span className="muted">{pack.status === 'expired' ? '已过期' : pack.status === 'pending' ? '待生效' : pack.id ? '已发放' : '待发放'}</span>
-            <button type="button" className="secondary" aria-label={`上移额度包 ${index + 1}`} disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>
-            <button type="button" className="secondary" aria-label={`下移额度包 ${index + 1}`} disabled={busy || index === packages.length - 1} onClick={() => move(index, 1)}>下移</button>
+            <button type="button" className="secondary" aria-label={`上移会员权益 ${index + 1}`} disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>
+            <button type="button" className="secondary" aria-label={`下移会员权益 ${index + 1}`} disabled={busy || index === packages.length - 1} onClick={() => move(index, 1)}>下移</button>
             <button type="button" className="ghost danger" disabled={busy} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button>
           </div>
-          <label>等级额度包 {index + 1}<Select aria-label={`等级额度包 ${index + 1}`} showSearch optionFilterProp="label" options={levels} placeholder="选择 Level" value={pack.level_code || undefined} disabled={Boolean(pack.id) || busy} onChange={value => update(index, { level_code: value })} /></label>
+          <label>会员权益 {index + 1}<Select aria-label={`会员权益 ${index + 1}`} showSearch optionFilterProp="label" options={levels} placeholder="选择会员档位" value={pack.level_code || undefined} disabled={Boolean(pack.id) || busy} onChange={value => update(index, { level_code: value })} /></label>
           <div className="grid two">
             <label>生效时间{pack.id ? <input readOnly value={time(pack.effective_at)} /> : <input type="datetime-local" disabled={busy} value={localDate(pack.effective_at)} onChange={e => update(index, { effective_at: e.target.value ? new Date(e.target.value).toISOString() : null })} />}</label>
             <label>到期时间{pack.id ? <input readOnly value={pack.expires_at ? time(pack.expires_at) : '长期有效'} /> : <input type="datetime-local" disabled={busy} value={localDate(pack.expires_at)} onChange={e => update(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })} />}</label>
@@ -270,8 +270,8 @@ function UserPackagesEditor({ tenant, subject, levels, onClose, onChanged }: {
           <small className="muted">{pack.id ? '日期沿用发放或会员同步时的设定，在这里只读显示。' : '生效时间留空立即生效；会员期额度必须填写到期时间。'}</small>
           {pack.quotas?.map(q => <div className="package-balance" key={q.quota_code}><span className="code">{q.quota_code}</span><span>{q.error ? `未配置完整：${q.error}` : `已用 ${q.used ?? 0} / ${q.limit ?? '不限'} · 剩余 ${q.remaining ?? '不限'}`}</span></div>)}
         </section>)}
-        {!packages.length && <p className="muted">尚无额度包，添加一个等级包即可。</p>}
-        <button type="button" className="secondary" disabled={busy || packages.length >= 100} onClick={() => setPackages(rows => [...rows, { level_code: '', effective_at: null, expires_at: null }])}>添加等级额度包</button>
+        {!packages.length && <p className="muted">尚无会员权益，添加一个会员档位即可。</p>}
+        <button type="button" className="secondary" disabled={busy || packages.length >= 100} onClick={() => setPackages(rows => [...rows, { level_code: '', effective_at: null, expires_at: null }])}>添加会员权益</button>
       </>}
       <div className="form-actions"><button disabled={!ready || loading || busy}>{busy ? '保存中…' : '保存'}</button><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button></div>
     </form>
@@ -292,12 +292,12 @@ export function AssignmentsPage(props: PageProps) {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [props.tenant, props.revision, offset, query]);
-  const columns: Column[] = [column('subject_id', { render: row => String(row.subject_id) }), { key: 'packages', title: '额度包（按扣费顺序）', render: row => {
+  const columns: Column[] = [column('subject_id', { render: row => String(row.subject_id) }), { key: 'packages', title: '会员权益（按扣费顺序）', render: row => {
     const packs = row.packages as UserPackage[];
-    return packs.length ? packs.map((p, i) => <span className="ordered-package" key={p.id}>{i + 1}. {p.level_code}{p.status === 'expired' ? '（已过期）' : p.status === 'pending' ? '（待生效）' : ''}</span>) : <span className="muted">无额度包</span>;
-  } }, { key: '_count', title: '包数量', render: row => (row.packages as UserPackage[]).length }, { key: '_actions', title: '操作', render: row => <button className="secondary" onClick={() => setEditing(String(row.subject_id))}>编辑额度包</button> }];
+    return packs.length ? packs.map((p, i) => <span className="ordered-package" key={p.id}>{i + 1}. {p.level_code}{p.status === 'expired' ? '（已过期）' : p.status === 'pending' ? '（待生效）' : ''}</span>) : <span className="muted">无会员权益</span>;
+  } }, { key: '_count', title: '权益数量', render: row => (row.packages as UserPackage[]).length }, { key: '_actions', title: '操作', render: row => <button className="secondary" onClick={() => setEditing(String(row.subject_id))}>编辑会员权益</button> }];
   return <section className="panel">
-    <div className="panel-head"><div><h2>用户等级</h2><p className="muted">每个用户可持有多个等级额度包。编辑用户可以发放、移除包，并调整扣费顺序。</p></div><button onClick={() => setEditing(null)}>设置用户额度包</button></div>
+    <div className="panel-head"><div><h2>用户权益</h2><p className="muted">每个用户可持有多项会员权益。编辑用户可以发放、移除包，并调整扣费顺序。</p></div><button onClick={() => setEditing(null)}>设置用户权益</button></div>
     <SearchBar keys={['subject_id', 'level_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
     <Table columns={columns} data={data.rows as unknown as Row[]} loading={loading} error={error} />
     <Pager offset={offset} total={data.total} onChange={setOffset} />
@@ -390,7 +390,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const columns: Column[] = [
     column('client_id'),
     column('service_code', { render: row => {
-      const unboundRoles: Record<string, string> = { membership: '会员同步', default_catalog: '默认方案目录只读', default_init: '默认初始化发放' };
+      const unboundRoles: Record<string, string> = { membership: '会员同步', default_catalog: '权益方案目录只读', default_init: '默认初始化发放' };
       return unboundRoles[String(row.role)] ? <span className="muted">不绑定（{unboundRoles[String(row.role)]}）</span> : <span className="code">{text(row.service_code)}</span>;
     } }),
     column('role'),
@@ -408,7 +408,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   // picks its Service and one of the Service roles.
   const fields: Field[] = membership || defaultPlanRole ? [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'shukang-members' },
-    { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步'), option('default_catalog', '默认方案目录只读'), option('default_init', '默认初始化发放')], hint: defaultPlanRole ? '分别签发目录只读与初始化写入凭据，两个角色不可互换' : '只能维护会员名单，不调用服务' },
+    { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步'), option('default_catalog', '权益方案目录只读'), option('default_init', '默认初始化发放')], hint: defaultPlanRole ? '分别签发目录只读与初始化写入凭据，两个角色不可互换' : '只能维护会员名单，不调用服务' },
     definitionField,
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ] : [
@@ -419,7 +419,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据用于准入和执行；会员同步凭据维护会员名单；默认方案凭据分为目录只读和初始化发放两种独立角色。签发后会下载一次性接入说明，内含明文密钥，请妥善保存并仅存于服务端。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_catalog', base_url: DEFAULT_BASE_URL })}>签发目录只读凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_init', base_url: DEFAULT_BASE_URL })}>签发初始化凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据用于准入和执行；会员同步凭据维护会员名单；权益方案凭据分为目录只读和初始化发放两种独立角色。签发后会下载一次性接入说明，内含明文密钥，请妥善保存并仅存于服务端。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_catalog', base_url: DEFAULT_BASE_URL })}>签发目录只读凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_init', base_url: DEFAULT_BASE_URL })}>签发初始化凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {definitionError && <div className="error-box" role="alert">{definitionError}，请刷新后重试</div>}
     <SearchBar keys={['client_id', 'service_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
@@ -443,42 +443,46 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
   tenant: string; plan: DefaultPlan | null; levels: Option[]; onClose: () => void; onSaved: () => void;
 }) {
   const [name, setName] = useState(plan?.name || ''), [enabled, setEnabled] = useState(plan?.enabled ?? true);
-  const [packages, setPackages] = useState<DefaultPlanPackage[]>(() => plan?.packages.map(p => ({ ...p })) ?? [{ code: '', name: '', level_code: '', validity_days: null }]);
+  const [packages, setPackages] = useState<DefaultPlanPackage[]>(() => plan?.packages.map(p => ({ ...p })) ?? []);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  function update(index: number, patch: Partial<DefaultPlanPackage>) {
-    setPackages(rows => rows.map((item, i) => i === index ? { ...item, ...patch } : item));
+  function move(index: number, delta: number) {
+    setPackages(rows => { const next = [...rows]; [next[index], next[index + delta]] = [next[index + delta], next[index]]; return next; });
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const body = { name: name.trim(), enabled, packages: packages.map(p => ({ ...p, code: p.code.trim(), name: p.name.trim(), validity_days: p.validity_days === null ? null : Number(p.validity_days) })) };
+      const body = { name: name.trim(), enabled, packages };
       if (plan) await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}`, 'PUT', { ...body, revision: plan.revision });
       else await api(`/tenants/${enc(tenant)}/default-plans`, 'POST', body);
       onSaved(); onClose();
-    } catch (e) { setError(e instanceof Error ? e.message : '保存默认方案失败'); }
+    } catch (e) { setError(e instanceof Error ? e.message : '保存权益方案失败'); }
     finally { setBusy(false); }
   }
-  return <Drawer title={plan ? '编辑默认方案' : '新增默认方案'} onClose={() => { if (!busy) onClose(); }}>
-    <form onSubmit={save}>
-      {error && <div className="error-box" role="alert">{error}</div>}
-      <div className="grid two">
-        <label>方案名称 *<input value={name} required maxLength={100} onChange={e => setName(e.target.value)} /></label>
-        <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} onChange={e => setEnabled(e.target.checked)} /></label>
+  return <Drawer fullScreen title={plan ? '编辑权益方案' : '新增权益方案'} onClose={() => { if (!busy) onClose(); }}>
+    <form className="plan-editor" onSubmit={save}>
+      <div className="plan-editor-body">
+        {error && <div className="error-box" role="alert">{error}</div>}
+        <div className="grid two">
+          <label>方案名称 *<input value={name} required maxLength={100} disabled={busy} onChange={e => setName(e.target.value)} /></label>
+          <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} disabled={busy} onChange={e => setEnabled(e.target.checked)} /></label>
+        </div>
+        <div className="plan-memberships">
+          <div><h3>会员权益</h3><p className="muted">从已有会员档位选择，按以下顺序发放。有效天数留空表示永久，期限从首次发放时间计算。</p></div>
+          {packages.map((item, index) => <section className="plan-entitlement" key={item.code} aria-label={`会员权益 ${index + 1}`}>
+            <div className="plan-entitlement-name"><strong>{index + 1}. {item.name}</strong><span className="muted">{levels.find(level => level.value === item.level_code)?.label || item.level_code}</span></div>
+            <label>有效天数<input aria-label={`会员权益 ${index + 1} 有效天数`} type="number" min={1} max={3660} placeholder="永久" disabled={busy} value={item.validity_days ?? ''} onChange={e => setPackages(rows => rows.map((row, i) => i === index ? { ...row, validity_days: e.target.value === '' ? null : Number(e.target.value) } : row))} /></label>
+            <div className="toolbar">
+              <button type="button" className="secondary" disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>
+              <button type="button" className="secondary" disabled={busy || index === packages.length - 1} onClick={() => move(index, 1)}>下移</button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button>
+            </div>
+          </section>)}
+          {!packages.length && <p className="muted">尚未添加会员权益，请选择一个会员档位。</p>}
+          <label>添加会员权益<Select<string> aria-label="添加会员权益" showSearch optionFilterProp="label" options={levels} placeholder="选择会员档位以添加" value={null} disabled={busy || packages.length >= 100} onChange={value => setPackages(rows => [...rows, { code: crypto.randomUUID(), name: value, level_code: value, validity_days: null }])} /></label>
+        </div>
+        <p className="muted">方案修改只影响之后的新发放，已发权益保持不变。测试档位也可加入权益方案，档位类型只控制公开会员目录。</p>
       </div>
-      <p className="muted">ID 创建后固定。每个包可使用同租户已有的测试或正式 Level；档位类型只控制公开会员目录。额度在方案保存时固定到修订并用于发放后的实际计算。</p>
-      <div className="table-wrap"><table><thead><tr><th>顺序</th><th>包标识</th><th>包名称</th><th>Level（档位类型）</th><th>有效天数</th><th>操作</th></tr></thead><tbody>
-        {packages.map((item, index) => <tr key={index}>
-          <td>{index + 1}</td>
-          <td><input aria-label={`包 ${index + 1} 标识`} required maxLength={64} value={item.code} onChange={e => update(index, { code: e.target.value })} /></td>
-          <td><input aria-label={`包 ${index + 1} 名称`} required maxLength={100} value={item.name} onChange={e => update(index, { name: e.target.value })} /></td>
-          <td><Select aria-label={`包 ${index + 1} Level`} showSearch optionFilterProp="label" options={levels} placeholder="选择 Level" value={item.level_code || undefined} onChange={value => update(index, { level_code: value })} /></td>
-          <td><input aria-label={`包 ${index + 1} 有效天数`} type="number" min={1} max={3660} placeholder="永久" value={item.validity_days ?? ''} onChange={e => update(index, { validity_days: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-          <td><div className="toolbar"><button type="button" className="secondary" disabled={index === 0} onClick={() => setPackages(rows => { const next = [...rows]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>上移</button><button type="button" className="secondary" disabled={index === packages.length - 1} onClick={() => setPackages(rows => { const next = [...rows]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })}>下移</button><button type="button" className="secondary" disabled={packages.length <= 1} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button></div></td>
-        </tr>)}
-      </tbody></table></div>
-      <button type="button" className="secondary" disabled={packages.length >= 100} onClick={() => setPackages(rows => [...rows, { code: '', name: '', level_code: '', validity_days: null }])}>添加额度包</button>
-      <p className="muted">有效天数留空表示永久；期限从首次发放时间计算。启用状态和包列表修改只影响之后的新发放。</p>
-      <div className="form-actions"><button disabled={busy || !levels.length}>{busy ? '保存中…' : '保存方案'}</button><button type="button" disabled={busy} className="secondary" onClick={onClose}>取消</button></div>
+      <div className="form-actions"><button disabled={busy || !packages.length}>{busy ? '保存中…' : '保存方案'}</button><button type="button" disabled={busy} className="secondary" onClick={onClose}>取消</button></div>
     </form>
   </Drawer>;
 }
@@ -497,11 +501,11 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
         const page = await api<{ rows: Row[]; total: number }>(`/tables/tq_levels?tenant=${enc(tenant)}&limit=200&offset=${pageOffset}`);
         rows.push(...page.rows);
         total = page.total;
-        if (!page.rows.length && pageOffset < total) throw new Error('Level 分页读取不完整');
+        if (!page.rows.length && pageOffset < total) throw new Error('会员档位分页读取不完整');
         pageOffset += page.rows.length;
       } while (pageOffset < total);
       if (active) setLevels(rows.map(row => ({ value: String(row.level_code), label: `${row.level_code} · ${row.publication_status === 'formal' ? '正式档位' : '测试档位'}` })));
-    })().catch(e => { if (active) { setLevels([]); setLevelsError(e instanceof Error ? e.message : 'Level 列表读取失败'); } })
+    })().catch(e => { if (active) { setLevels([]); setLevelsError(e instanceof Error ? e.message : '会员档位列表读取失败'); } })
       .finally(() => { if (active) setLevelsLoading(false); });
     return () => { active = false; };
   }, [tenant, revision]);
@@ -510,7 +514,7 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
     setLoading(true); setError('');
     api<DefaultPlanPage>(`/tenants/${enc(tenant)}/default-plans?limit=100&offset=${offset}`)
       .then(result => { if (active) setData(result); })
-      .catch(e => { if (active) { setData(null); setError(e instanceof Error ? e.message : '默认方案读取失败'); } })
+      .catch(e => { if (active) { setData(null); setError(e instanceof Error ? e.message : '权益方案读取失败'); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [tenant, revision, offset]);
@@ -520,23 +524,23 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
     setError('');
     try {
       await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}/status`, 'PATCH', { enabled: !plan.enabled, revision: plan.revision });
-      onChanged(plan.enabled ? '默认方案已停用' : '默认方案已启用');
+      onChanged(plan.enabled ? '权益方案已停用' : '权益方案已启用');
     } catch (e) { setError(e instanceof Error ? e.message : '更新方案状态失败'); }
   }
   return <section className="panel">
-    <div className="panel-head"><div><h2>默认方案</h2><p className="muted">默认方案包含多个按顺序发放的同租户 Level 包。测试档位也可用于私有默认方案；正式状态只控制公开会员目录。停用方案保留在目录中，供小区配置显示；已发权益不随方案编辑变化。</p></div><button disabled={!levels.length || levelsLoading || !!levelsError} onClick={() => setEditing(null)}>新增方案</button></div>
-    {levelsError && <div className="error-box" role="alert">Level 列表加载失败：{levelsError}</div>}
-    {!levels.length && !levelsLoading && !levelsError && <p className="muted">请先在 Level 等级中建立档位，并配置对应等级额度。</p>}
+    <div className="panel-head"><div><h2>权益方案</h2><p className="muted">权益方案包含多个按顺序发放的同租户会员权益。测试档位也可用于私有权益方案；正式状态只控制公开会员目录。停用方案保留在目录中，供小区配置显示；已发权益不随方案编辑变化。</p></div><button disabled={!levels.length || levelsLoading || !!levelsError} onClick={() => setEditing(null)}>新增方案</button></div>
+    {levelsError && <div className="error-box" role="alert">会员档位列表加载失败：{levelsError}</div>}
+    {!levels.length && !levelsLoading && !levelsError && <p className="muted">请先在会员档位中建立档位，并配置对应档位额度。</p>}
     {error && <div className="error-box" role="alert">{error}</div>}
-    <div className="table-wrap"><table><thead><tr><th>名称</th><th>方案 ID</th><th>状态</th><th>修订</th><th>有序 quota 包</th><th>操作</th></tr></thead><tbody>
-      {loading || error || !plans.length ? <tr><td colSpan={6} className={error ? 'error' : 'muted'}>{loading ? '正在加载…' : error || '暂无默认方案'}</td></tr> : plans.map(plan => <tr key={plan.id}>
+    <div className="table-wrap"><table><thead><tr><th>名称</th><th>方案 ID</th><th>状态</th><th>修订</th><th>会员权益（按发放顺序）</th><th>操作</th></tr></thead><tbody>
+      {loading || error || !plans.length ? <tr><td colSpan={6} className={error ? 'error' : 'muted'}>{loading ? '正在加载…' : error || '暂无权益方案'}</td></tr> : plans.map(plan => <tr key={plan.id}>
         <td>{plan.name}</td><td><span className="code">{plan.id}</span></td><td><Status value={plan.enabled ? 'enabled' : 'disabled'} /></td><td>{plan.revision}</td>
         <td>{plan.packages.map((item, i) => <div key={item.code}>{i + 1}. {item.name} · {levelLabels.get(item.level_code) || item.level_code} · {item.validity_days === null ? '永久' : `${item.validity_days} 天`}</div>)}</td>
         <td><div className="toolbar"><button className="secondary" onClick={() => setEditing(plan)}>编辑</button><button className="secondary" onClick={() => void toggle(plan)}>{plan.enabled ? '停用' : '启用'}</button></div></td>
       </tr>)}
     </tbody></table></div>
     {(data?.total ?? 0) > 100 && <div className="pagination toolbar"><button className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>上一页</button><span className="muted">第 {Math.floor(offset / 100) + 1} / {Math.ceil((data?.total ?? 0) / 100)} 页 · 共 {data?.total} 条</span><button className="secondary" disabled={offset + 100 >= (data?.total ?? 0)} onClick={() => setOffset(offset + 100)}>下一页</button></div>}
-    {editing !== undefined && <DefaultPlanEditor key={editing?.id ?? 'new'} tenant={tenant} plan={editing} levels={levels} onClose={() => setEditing(undefined)} onSaved={() => onChanged('默认方案已保存')} />}
+    {editing !== undefined && <DefaultPlanEditor key={editing?.id ?? 'new'} tenant={tenant} plan={editing} levels={levels} onClose={() => setEditing(undefined)} onSaved={() => onChanged('权益方案已保存')} />}
   </section>;
 }
 
@@ -580,7 +584,7 @@ function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: 
   }, [tenant, subject, revision]);
   if (error) return <div className="error-box" role="alert">{error}</div>;
   if (!data) return <p className="muted">正在查询用户 {subject}…</p>;
-  if (!data.member) return <div className="error-box" role="status">用户 {subject} 当前不是会员（没有有效等级），所有服务请求都会被拒绝。</div>;
+  if (!data.member) return <div className="error-box" role="status">用户 {subject} 当前不是会员（没有有效会员档位），所有服务请求都会被拒绝。</div>;
   const columns: Column[] = [
     column('quota_code'),
     { key: 'services', title: '服务', render: r => (r.services as string[]).join('、') || '—' },
@@ -593,7 +597,7 @@ function SubjectUsage({ tenant, subject, revision }: { tenant: string; subject: 
     { key: 'period_end', title: '重置时间', render: r => time(r.period_end) },
   ];
   return <div className="subject-usage" role="region" aria-label={`用户 ${subject} 的配额使用情况`}>
-    <p><strong>用户 {subject}</strong> · 等级 <span className="code">{data.member.level_code}</span> · 有效期至 {data.member.expires_at ? time(data.member.expires_at) : '长期'}</p>
+    <p><strong>用户 {subject}</strong> · 会员档位 <span className="code">{data.member.level_code}</span> · 有效期至 {data.member.expires_at ? time(data.member.expires_at) : '长期'}</p>
     <Table columns={columns} data={data.quotas as unknown as Row[]} />
   </div>;
 }
@@ -608,6 +612,6 @@ export function Overview({ tenant, revision }: { tenant: string; revision: numbe
     api<OverviewCounts>(`/tenants/${enc(tenant)}/overview`).then(r => { if (active) setCounts(r); }).catch(() => undefined);
     return () => { active = false; };
   }, [tenant, revision]);
-  const items: [string, keyof OverviewCounts][] = [['Service', 'services'], ['Level', 'levels'], ['客户端', 'clients'], ['当前会员', 'active_members']];
+  const items: [string, keyof OverviewCounts][] = [['Service', 'services'], ['会员档位', 'levels'], ['客户端', 'clients'], ['当前会员', 'active_members']];
   return <div className="stats">{items.map(([label, key]) => <div className="stat" key={key}><span className="muted">{label}</span><strong>{counts ? counts[key] : '—'}</strong></div>)}</div>;
 }
