@@ -477,7 +477,13 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
           {packages.map((item, index) => <section className="plan-entitlement" key={item.code} aria-label={`会员权益 ${index + 1}`}>
             <div className="plan-entitlement-name"><strong>{index + 1}. {item.name}</strong><span className="muted">{levels.find(level => level.value === item.level_code)?.label || item.level_code}</span></div>
             <div className="plan-duration">
-              <label>有效期<select aria-label={`会员权益 ${index + 1} 有效期`} disabled={busy} value={item.validity_days === null ? 'permanent' : 'days'} onChange={e => updateDuration(index, e.target.value === 'permanent' ? null : '')}><option value="permanent">永久有效</option><option value="days">按天设置</option></select></label>
+              <div role="radiogroup" aria-label={`会员权益 ${index + 1} 有效期`}>
+                <span>有效期</span>
+                <div className="plan-duration-modes">
+                  <label><input type="radio" name={`duration-${item.code}`} aria-label={`会员权益 ${index + 1} 按天`} checked={item.validity_days !== null} disabled={busy} onChange={() => updateDuration(index, '')} />按天</label>
+                  <label><input type="radio" name={`duration-${item.code}`} aria-label={`会员权益 ${index + 1} 永久`} checked={item.validity_days === null} disabled={busy} onChange={() => updateDuration(index, null)} />永久</label>
+                </div>
+              </div>
               {item.validity_days !== null && <label>有效天数<input aria-label={`会员权益 ${index + 1} 有效天数`} type="number" required min={1} max={3660} step={1} disabled={busy} value={item.validity_days} onChange={e => updateDuration(index, e.target.value === '' ? '' : Number(e.target.value))} /></label>}
             </div>
             <div className="toolbar">

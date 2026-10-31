@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-01
+
+### Changed
+- Show native radio buttons for day-based or permanent validity; only day-based validity displays the required numeric input.
+
 ## [0.18.2] - 2026-11-01
 
 ### Changed
@@ -422,7 +427,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.2...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.3...HEAD
+[0.18.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.1...v0.18.0
