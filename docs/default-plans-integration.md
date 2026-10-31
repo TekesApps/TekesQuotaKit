@@ -95,15 +95,29 @@ Use only synthetic users and server credentials:
    Admin user package GET exposes each independent quota usage and expiry.
 5. Change plan/Level rules and disable the plan. Existing users replay and consume
    their original frozen limits; a new subject cannot receive the disabled plan.
-6. For response loss, discard a successful real HTTP response (or interrupt the
+6. To test Quota's optional replay guarantee for response loss, discard a successful real HTTP response (or interrupt the
    client before persisting it), restart the caller and retry the same request; verify
    one fact and one set of package IDs. Quota database concurrency/failure injection
    tests supply the separate transaction evidence; a mock HTTP test is not a substitute.
 
-Quota does not implement SKZY binding/outbox/history logic. New users initialize only
+Quota does not implement SKZY binding/history logic. New users initialize only
 after SKZY's first-binding decision; existing users are not automatically backfilled.
 An already initialized subject cannot receive another default grant. Never clear the
 fact to issue a separate campaign; that would require a separate authorized contract.
+
+## Current SKZY delivery policy (2026-10-31 amendment)
+
+The user's latest instruction replaces the earlier reliable-delivery/outbox proposal:
+make one initialization request after the first successful binding. Failure leaves the
+binding successful; no grant outbox, grant status cache, retry worker, compensation or
+restart scan is required. Do not reissue on rebind or ordinary consumption. Normal
+consumption asks Quota and uses its actual entitlement result, including refusal when
+no entitlement exists. A timeout can still conceal a committed initialization.
+
+Quota 0.17.1, its stable seven-day plan, tenant/subject idempotency, snapshots and paid
+preservation remain unchanged. Earlier worker/outbox chain reports are historical
+evidence of Quota replay safety, not acceptance requirements for the revised SKZY
+consumer. Its superseded staged implementation must not be deployed as the new policy.
 
 Record exact service/client commits, request IDs, redacted responses and acceptance
 results on both linked Issues. Keep credentials out of evidence. Stop the temporary

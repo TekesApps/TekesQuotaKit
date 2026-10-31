@@ -939,8 +939,17 @@ Any failed insert rolls back all grants. New packages append after existing pack
 paid assignments, their counters and priority remain intact. Retries after concurrent
 requests, process restart, or a lost successful response cannot grant twice. Expiry,
 revocation, changing estates, or later plan/Level edits never clear the fact.
-Normal Service enable/disable policy still applies. Business backends must persist and
-retry their original request; Quota does not invent an estate or substitute a plan.
+Normal Service enable/disable policy still applies. Quota does not require a caller
+outbox, startup scan or retry worker, and does not invent an estate or substitute a plan.
+If an authorized caller repeats initialization, the saved fact still prevents another grant.
+
+SKZY's latest consumer policy (2026-10-31) makes one normal initialization attempt
+after the first successful binding. Failure does not fail the binding and is not
+compensated or retried in the background. SKZY keeps no grant outbox/status cache and
+does not scan users on restart. Later consumption asks Quota normally and uses the
+actual entitlement result; consumption does not implicitly initialize or award a package.
+A lost initialization response may still mean the grant committed, so caller failure
+must not be treated as proof that no entitlement exists.
 
 ### Management and snapshots
 
@@ -1003,8 +1012,9 @@ the four new `tq_default_*` tables for audit. No delete/reset initialization API
 | 503 | `default_initialization_unavailable` | Initialization database unavailable, including credential lookup |
 
 Domain errors use `{code,message}`; do not assume validation/auth `detail` has that shape.
-A service failure may leave the caller unsure whether a commit succeeded: retry the
-same subject and original plan to read the saved fact. A disabled/missing first plan
+A service failure may leave the caller unsure whether a commit succeeded. If the
+caller retries, the same subject and original plan recover the saved fact; that is an
+API safety guarantee, not a requirement for SKZY to schedule retries. A disabled/missing first plan
 creates no fact. Re-enable the same existing ID to recover a disabled plan; a wrong ID
 requires configuration investigation, not a second entitlement identity.
 
