@@ -83,7 +83,7 @@ export function Pager({ offset, total, onChange }: { offset: number; total: numb
   </div>;
 }
 
-export function Drawer({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+export function Drawer({ title, children, onClose, fullScreen = false }: { title: string; children: ReactNode; onClose: () => void; fullScreen?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -105,7 +105,7 @@ export function Drawer({ title, children, onClose }: { title: string; children: 
     document.body.style.overflow = 'hidden';
     return () => { document.removeEventListener('keydown', key); document.body.style.overflow = overflow; previous?.focus(); };
   }, []);
-  return <div className="drawer" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div ref={root} className="drawer-panel" role="dialog" aria-modal="true" aria-label={title}><div className="drawer-head"><h2>{title}</h2><button type="button" className="secondary" onClick={onClose}>关闭</button></div>{children}</div></div>;
+  return <div className={`drawer${fullScreen ? ' drawer-fullscreen' : ''}`} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div ref={root} className="drawer-panel" role="dialog" aria-modal="true" aria-label={title}><div className="drawer-head"><h2>{title}</h2><button type="button" className="secondary" onClick={onClose}>关闭</button></div>{children}</div></div>;
 }
 
 // datetime-local works in the browser's zone; the API takes ISO 8601 with an offset.

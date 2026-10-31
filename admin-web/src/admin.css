@@ -379,6 +379,22 @@
 
 .user-package {display:grid;gap:12px;padding:16px;border:1px solid var(--line);border-radius:10px;}
 .user-package .toolbar {flex-wrap:wrap;gap:8px;}
+
+/* Only the plan editor opts into a full-screen workspace. */
+.drawer-fullscreen .drawer-panel {width:100%;height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding:clamp(16px,2vw,32px);}
+.drawer-fullscreen .drawer-head {width:100%;max-width:1120px;margin:0 auto 20px;flex-shrink:0;}
+.drawer-fullscreen .plan-editor {width:100%;max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:0;flex:1;min-height:0;}
+.plan-editor-body {display:grid;gap:20px;overflow-y:auto;min-height:0;padding:4px 2px 24px;}
+.plan-memberships {display:grid;gap:16px;}
+.plan-memberships h3,.plan-memberships p {margin:0;}
+.plan-entitlement {display:grid;grid-template-columns:minmax(0,1fr) 160px auto;align-items:center;gap:24px;padding:20px;border:1px solid var(--line);border-radius:12px;}
+.plan-entitlement-name {display:grid;gap:6px;min-width:0;overflow-wrap:anywhere;}
+.plan-entitlement .toolbar {flex-wrap:wrap;gap:8px;}
+.plan-editor .form-actions {padding-top:16px;border-top:1px solid var(--line);flex-shrink:0;}
+@media(max-width:700px){
+  .plan-entitlement {grid-template-columns:minmax(0,1fr);gap:16px;padding:16px;}
+  .plan-editor-body .grid {grid-template-columns:minmax(0,1fr);}
+}
 .package-balance {display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .ordered-package {display:inline-block;margin-right:16px;}
 

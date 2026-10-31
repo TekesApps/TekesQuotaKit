@@ -25,7 +25,7 @@ export const statusNames: Record<string, string> = {
   atomic: '原子', composite: '组合', instant: '即时', durable: '持续',
   day: '每日', week: '每周', month: '每月', level_term: '会员期',
   issuer: '准入方', provider: '执行方', consumer: '准入+执行', membership: '会员同步',
-  default_catalog: '默认方案目录只读', default_init: '默认初始化发放',
+  default_catalog: '权益方案目录只读', default_init: '默认初始化发放',
 };
 
 /** Column titles shared by every table view. */
@@ -35,7 +35,7 @@ export const columnNames: Record<string, string> = {
   description: '中文说明',
   id: 'ID', tenant_id: '租户', client_id: 'Client ID', role: '角色',
   quota_code: 'Quota 配额', unit_code: '单位', metering_mode: '计量方式',
-  level_code: 'Level', limit_mode: '限额方式', limit_value: '限额', period_kind: '周期', timezone: '时区',
+  level_code: '会员档位', limit_mode: '限额方式', limit_value: '限额', period_kind: '周期', timezone: '时区',
   service_code: 'Service', service_kind: '类型', redemption_mode: '兑现方式', charge_units: '开场扣费', session_ttl_seconds: '默认时长(秒)',
   parent_service_code: '组合 Service', child_service_code: '子 Service', max_uses: '每场上限',
   subject_id: '用户 ID', effective_at: '生效时间', expires_at: '到期时间', term_start: '会期开始', term_end: '会期结束',
