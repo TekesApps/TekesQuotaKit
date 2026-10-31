@@ -960,19 +960,25 @@ Create body (update also requires `revision`, integer >=1):
 {
   "name": "VIP seven days", "enabled": true,
   "packages": [{
-    "code": "vip-week", "name": "VIP seven days", "level_code": "actual-formal-vip-code",
+    "code": "vip-week", "name": "VIP seven days", "level_code": "actual-vip-code",
     "validity_days": 7
   }]
 }
 ```
 
 Names are non-blank, at most 100 characters; package codes are unique within a plan,
-non-blank, at most 64. Each Level must be formal and define limits. `validity_days`
+non-blank, at most 64. Each Level must belong to the tenant and define limits. `validity_days`
 must be explicitly null (permanent) or an integer 1–3660. A `level_term` limit requires
 a non-null duration. Each full plan save copies the referenced Level's current limits;
 future plan revisions can differ, while issued snapshots are immutable and drive actual
 admission, charges, balance and refunds using the existing Level calculation engine.
 Ordinary packages continue to use live Level limits.
+
+Since 0.17.1, a private default plan may explicitly reference a `test` or `formal`
+Level. Publication status controls the public membership catalog, not this authorized
+private grant. Creating/enabling a private plan never promotes or clones its Level;
+the public membership catalog remains unchanged. Admin authentication, the plan's
+enabled state and the separate `default_init` credential still control issuance.
 
 Every issued package starts at that subject's `applied_at`; expiry and term end equal
 `applied_at + validity_days * 24 hours`. Seven-day VIP therefore lasts 604800 seconds

@@ -450,3 +450,43 @@ def test_status_change_preserves_snapshot_after_level_demotion(tmp_path):
     applied = kit.initialize_defaults(TENANT, "new-subject", plan["id"], source())
     assert applied["initialization"]["plan_revision"] == 3
     assert kit.user_packages(TENANT, "new-subject")["packages"][0]["quotas"][0]["limit"] == 3
+
+
+def test_private_plan_can_snapshot_test_level_without_publishing_it(tmp_path):
+    kit, client = setup(tmp_path)
+    kit.put_level(TENANT, "private-vip", publication_status="test")
+    kit.put_limit(TENANT, "private-vip", "visits", "finite", 9, "month", "UTC")
+    public_before = kit.membership_catalog(TENANT)
+    assert "private-vip" not in [row["code"] for row in public_before["levels"]]
+    endpoint = f"/v1/admin/tenants/{TENANT}/default-plans"
+    response = client.post(
+        endpoint,
+        headers=ADMIN,
+        json={
+            "name": "Private VIP seven days",
+            "enabled": True,
+            "packages": [
+                {
+                    "code": "private-week",
+                    "name": "VIP seven days",
+                    "level_code": "private-vip",
+                    "validity_days": 7,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    assert kit.membership_catalog(TENANT) == public_before
+    kit.put_limit(TENANT, "private-vip", "visits", "finite", 0, "month", "UTC")
+    fact = kit.initialize_defaults(TENANT, "private-subject", plan["id"], source())
+    package = kit.user_packages(TENANT, "private-subject")["packages"][0]
+    assert package["quotas"][0]["limit"] == 9
+    assert (
+        datetime.fromisoformat(package["expires_at"])
+        - datetime.fromisoformat(fact["initialization"]["applied_at"])
+    ).total_seconds() == 604800
+    caller = kit.client("ordinary-consumer-key-for-tests-00001", "provider")
+    kit.redeem(caller, "private-subject", "visit", "private-vip-use")
+    assert kit.balance(caller, "private-subject")["remaining"] == 8
+    assert kit.membership_catalog(TENANT) == public_before

@@ -90,12 +90,6 @@ class DefaultPlans:
                 .with_for_update()
             )
             _require(target is not None, "unknown_level", "Level not found", 404)
-            _require(
-                target.publication_status == "formal",
-                "default_level_not_formal",
-                "Default packages require a formal Level",
-                409,
-            )
             rules = list(
                 db.scalars(
                     select(Limit)
