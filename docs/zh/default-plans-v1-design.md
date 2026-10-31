@@ -1,12 +1,13 @@
 # 新用户默认 quota 方案：共同接口合同 v1 核对与设计
 
 日期：2026-10-31。范围：仅 TekesQuotaKit；SKZY admin/backend 由其他会话负责。
-核对基线：`968577d`（main，包版本 `0.13.3`）。本批仅文档和合同核对，未实现、未发布、未部署。
+最终核对基线：`d03b7b7`（main，包元数据版本 `0.16.2`；不据此断言已发布）。
+初始本地基线 `968577d / 0.13.3` 已在核对中更新。本批仅文档和合同核对，未实现、未发布、未部署。
 
 ## 结论与状态
 
 用户提供的 v1 职责、URL、请求/成功响应和首次发放幂等语义**可实现，予以确认并保存**。
-这不表示 v0.13.3 已支持这些接口，也不表示下文待确认补充已成为消费方合同。
+这不表示当前基线已支持这些接口，也不表示下文待确认补充已成为消费方合同。
 现有代码不能直接拼接成满足 v1 的实现：需要独立初始化事实、同事务追加发放、
 独立授权和实际参与计算的权益快照。不得将现有整表保存包接口当作赠送接口。
 
@@ -105,23 +106,28 @@
 | 不覆盖已有权益 | `save_user_packages` 撤销未出现在完整列表的包 | 此方法不可用于默认发放；新增同事务 append 路径 |
 | 并发与事务 | `sessions.begin`、`_lock_subject` upsert+行锁；SQLite BEGIN IMMEDIATE | 可复用锁和 Session；不能循环调用各自提交的公开发放方法 |
 | 初始化记录 | models 中没有对应事实表 | 新增 tenant+subject 唯一事实，包撤销不得级联删除它 |
+| 新会员目录与购买回执 | `core.py:membership_catalog`、`membership_purchases.py`、`models.py:MembershipPurchase` | 可参考 subject 锁和回执事务结构；目录仍依赖可写 membership 角色，购买以 tenant+order 为幂等边界且不同参数重试报冲突，不能替代默认初始化 |
 | 错误外壳 | api 中 QuotaError → code/message；HTTPException/校验错误 → detail | 保留两种现有外壳，不能承诺当前所有错误统一 code/message |
 | 目标 API | `api.py` 无两个目标路由 | 必须新增，不能对外宣称 v0.13.3 可调用 |
 
 源文件在 `src/tekes_quota_kit/`。现有权限函数有一个实现注意事项：
 `client(key, role)` 对 membership 以外会接受 consumer，因此新增角色必须显式隔离，
 不能只添加角色常量就意外赋予所有 consumer 初始化权限。
+新增会员购买会以 `package_code=membership` 发放主会员并遮蔽之前主会员；默认赠送必须是
+独立追加包，不能借此切换或遮蔽付费会员。新 Level 的 `publication_status=test/formal`
+是另一维度；建议默认方案只引用 formal Level，方案 enabled 不代替 Level 发布状态，
+此项包配置校验也随 B 一并确认。
 
 ## 待确认的最小补充（未生效）
 
 ### A. 授权
 
 建议沿用 Client 的凭据哈希、单 tenant、单 role 机制，新增两个独立角色：
-`default_catalog`（仅 GET 目录）和 `default_initializer`（仅 POST 初始化），
+`default_catalog`（仅 GET 目录）和 `default_init`（仅 POST 初始化），
 均使用无 Service 绑定的占位方式。SKZY admin/backend 分别持不同凭据。
 不扩建通用 scope/RBAC 体系，不让 consumer 或 membership 自动获得新能力。
 需同步 provision、配置校验、管理 UI 和下载调用合同。此为现有角色机制的扩展，
-不是声称现有版本已具备细分权限。
+不是声称现有版本已具备细分权限。两者均适配现有 role 的 String(16)，无需扩列。
 
 ### B. 包、快照、期限和顺序
 
@@ -218,17 +224,24 @@ SQLite 升级办法和 API 文档。create_all 只适合创建缺表，不能当
 ## 转交 SKZY 与本批交付记录
 
 - SKZY 可按“保存的共同接口合同 v1”对齐职责和成功载荷；四项补充确认前不要锁定角色、
-  分页或包期限细节。当前发布版 v0.13.3 无目标 API，不能进行真实发放联调。
+  分页或包期限细节。当前 main 包元数据 v0.16.2 无目标 API，不能进行真实发放联调。
 - 实施完成后提供确切发布版本/commit、迁移说明、两种独立凭据的 provision 方法，
   在非生产建立方案，GET 验证所有分页和停用展示，POST 首次/跨方案重试核对事实完全一致，
   检查付费包与实际消费，并回填 Issue/PR。不向文档写真实密钥。
 - 本批仅文档；运行时功能、迁移、管理 UI、新 API 及其验收均未交付。
 - 合同与交付跟踪：[Issue #40](https://github.com/TekesApps/TekesQuotaKit/issues/40)。
   合同冻结后的实施：[Issue #41](https://github.com/TekesApps/TekesQuotaKit/issues/41)，依赖 #40。
-- 本批基线检查：`.venv/bin/python -m pytest -q tests/test_subject_id.py
+- 初始基线检查：`.venv/bin/python -m pytest -q tests/test_subject_id.py
   tests/test_membership_sync.py tests/test_ordered_level_packages.py tests/test_packages.py
   tests/test_admin_auth.py tests/test_docs_schema.py tests/test_mysql_integration.py`：
   **81 passed, 5 skipped**；五项 MySQL 测试因未配置可丢弃测试库而跳过。
   这些仅证明相关既有行为的基线，不是默认初始化功能验收。
   一条现有 Starlette/httpx 弃用警告，不影响本批结果。
+- 更新至 `d03b7b7` 后，重跑上述集合并增加 `test_membership_catalog.py`、
+  `test_membership_purchases.py`、`test_level_publication.py`、`test_service_status.py`：
+  96 passed、5 skipped、1 failed。失败为本地 editable 安装元数据仍是 0.13.3，
+  `test_session_reports_the_installed_version` 与新 pyproject 的 0.16.2 不一致。
+  执行 `uv pip install --python .venv/bin/python --no-deps -e .` 同步元数据，
+  单独重跑该失败测试：1 passed；其余通过项不因仅元数据刷新重复执行。
+  合并检查结果为 97 项通过、5 项 MySQL 跳过；不是一次全绿运行，新功能仍未验证。
 - 本批文档提交及 PR 链接回填 #40/#41；无新功能版本、无可调用的新 API。
