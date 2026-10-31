@@ -138,7 +138,7 @@ class LevelPackages:
         return db.scalar(query.with_for_update() if lock else query)
 
     def _level_sources(self, db, tenant, subject, quota, now, *, lock=False, token=None):
-        from .core import _period
+        from .core import _limit_period
 
         snapshots = []
         if token is not None:
@@ -164,7 +164,7 @@ class LevelPackages:
             for assignment in self._assignments(db, tenant, subject, now, lock=lock):
                 limit = self._assignment_limit(db, assignment, quota)
                 if limit is not None:
-                    start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+                    start, end = _limit_period(now, limit, assignment)
                     definitions.append((assignment, limit.limit_value, start, end))
         return [
             (
@@ -172,7 +172,9 @@ class LevelPackages:
                 value,
                 start,
                 end,
-                self._package_usage(db, assignment, quota, start, end, lock=lock),
+                self._package_usage(db, assignment, quota, start, end, lock=lock)
+                if start is not None
+                else None,
             )
             for assignment, value, start, end in definitions
         ]
@@ -200,7 +202,7 @@ class LevelPackages:
         )
 
     def _user_packages_payload(self, db, tenant, subject):
-        from .core import QuotaError, _period, utc_now
+        from .core import QuotaError, _limit_period, utc_now
 
         stamp = lambda value: value.isoformat() + "Z" if value else None  # noqa: E731
         state = db.scalar(
@@ -221,8 +223,12 @@ class LevelPackages:
                     timezone=limit.timezone,
                 )
                 try:
-                    start, end = _period(now, limit.period_kind, limit.timezone, assignment)
-                    usage = self._package_usage(db, assignment, limit.quota_code, start, end)
+                    start, end = _limit_period(now, limit, assignment)
+                    usage = (
+                        self._package_usage(db, assignment, limit.quota_code, start, end)
+                        if start is not None
+                        else None
+                    )
                     used = usage.used_units if usage else 0
                     item.update(
                         used=used,
@@ -269,7 +275,7 @@ class LevelPackages:
             return self._user_packages_payload(db, tenant, subject)
 
     def save_user_packages(self, tenant, subject, packages, revision):
-        from .core import _period, _require, _subject, utc_now
+        from .core import _limit_period, _require, _subject, utc_now
 
         subject = _subject(subject)
         now = utc_now()
@@ -345,7 +351,7 @@ class LevelPackages:
                             Limit.level_code == level,
                         )
                     ):
-                        _period(start, limit.period_kind, limit.timezone, row)
+                        _limit_period(start, limit, row)
                     db.add(row)
                 row.sort_order = order
             for row_id, row in current.items():

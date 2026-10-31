@@ -148,6 +148,19 @@ def _period(
     return start.astimezone(UTC).replace(tzinfo=None), end.astimezone(UTC).replace(tzinfo=None)
 
 
+def _limit_period(now: datetime, limit, assignment: Assignment):
+    """An indefinite zero entitlement has no accounting bucket or funding period."""
+    if (
+        limit.period_kind == "level_term"
+        and limit.limit_mode == "finite"
+        and limit.limit_value == 0
+        and assignment.term_end is None
+        and assignment.expires_at is None
+    ):
+        return None, None
+    return _period(now, limit.period_kind, limit.timezone, assignment)
+
+
 class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
     """MySQL-backed authority. Database URL points at the consumer's existing schema."""
 
@@ -728,7 +741,10 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
         )
         if any(value is None for _, value, _, _, _ in sources):
             return None
-        return sum(max(0, value - counter.used_units) for _, value, _, _, counter in sources) + sum(
+        return sum(
+            max(0, value - (counter.used_units if counter else 0))
+            for _, value, _, _, counter in sources
+        ) + sum(
             max(0, g.total_units - g.used_units)
             for g in self._packages(
                 db, row.tenant_id, row.subject_id, row.service_code, row.quota_code, now, lock=True
@@ -755,6 +771,7 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
             lock=True,
             token=row if allow_overdraft else None,
         )
+        sources = [source for source in sources if source[2] is not None]
         # Tokens admitted before ordered packages retain their original period and limit.
         if allow_overdraft and not db.scalar(
             select(LevelPackageAdmission.token_id)
@@ -1108,11 +1125,17 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
         _require(quota is not None, "no_quota", "Service has no direct Quota")
         assignments = QuotaKit._assignments(db, tenant, subject, now, lock=lock)
         _require(bool(assignments), "no_level", "No active Level")
+        zero = None
         for assignment in assignments:
             limit = QuotaKit._assignment_limit(db, assignment, quota.quota_code)
             if limit is not None:
-                start, end = _period(now, limit.period_kind, limit.timezone, assignment)
+                start, end = _limit_period(now, limit, assignment)
+                if start is None:
+                    zero = (quota, limit, start, end)
+                    continue
                 return quota, limit, start, end
+        if zero is not None:
+            return zero
         raise QuotaError("no_limit", "No user Level package supports this Service")
 
     @staticmethod
@@ -1262,6 +1285,7 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
             quota, limit, start, end = self._policy(
                 db, issuer.tenant_id, subject, service.service_code, now
             )
+            _require(start is not None, "quota_exhausted", "Quota exhausted")
             usage = self._usage(db, issuer.tenant_id, subject, quota.quota_code, start, end)
             _require(
                 (available := self._available(db, row, limit, usage, now)) is None or available > 0,
@@ -1277,6 +1301,8 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
             for order, (assignment, value, a_start, a_end, _) in enumerate(
                 self._level_sources(db, issuer.tenant_id, subject, quota.quota_code, now, lock=True)
             ):
+                if a_start is None:
+                    continue
                 db.add(
                     LevelPackageAdmission(
                         token_id=row.id,
@@ -1368,6 +1394,7 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
             quota, limit, start, end = self._policy(
                 db, provider.tenant_id, subject, service.service_code, now
             )
+            _require(start is not None, "quota_exhausted", "Quota exhausted")
             usage = self._usage(db, row.tenant_id, subject, quota.quota_code, start, end)
             _require(
                 (available := self._available(db, row, limit, usage, now)) is None or available > 0,
@@ -1494,6 +1521,7 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
             quota, limit, start, end = self._policy(
                 db, provider.tenant_id, subject, service_code, now
             )
+            _require(start is not None, "quota_exhausted", "Quota exhausted")
             _require(
                 quota.metering_mode == "per_use", "wrong_mode", "Composite needs per-use Quota"
             )
@@ -1887,8 +1915,12 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
                 None if value is None else max(0, value - (counter.used_units if counter else 0))
                 for _, value, _, _, counter in sources
             ]
-            packages = self._packages(
-                db, caller.tenant_id, subject, caller.service_code, quota.quota_code, now
+            packages = (
+                self._packages(
+                    db, caller.tenant_id, subject, caller.service_code, quota.quota_code, now
+                )
+                if start is not None
+                else []
             )
             auxiliary = sum(max(0, g.total_units - g.used_units) for g in packages)
             return {
@@ -1914,8 +1946,8 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
                         "limit": value,
                         "used": counter.used_units if counter else 0,
                         "remaining": remaining,
-                        "period_start": a_start.isoformat() + "Z",
-                        "period_end": a_end.isoformat() + "Z",
+                        "period_start": a_start.isoformat() + "Z" if a_start else None,
+                        "period_end": a_end.isoformat() + "Z" if a_end else None,
                     }
                     for (a, value, a_start, a_end, counter), remaining in zip(
                         sources, values, strict=True
@@ -1930,7 +1962,7 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
                     counter.used_units if counter else 0 for _, _, _, _, counter in sources
                 ),
                 "remaining": None if any(v is None for v in values) else sum(values) + auxiliary,
-                "period_end": end.isoformat() + "Z",
+                "period_end": end.isoformat() + "Z" if end else None,
             }
 
     def subject_usage(self, tenant: str, subject: int | str) -> dict:
@@ -1983,7 +2015,9 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
                 }
                 try:
                     sources = self._level_sources(db, tenant, subject, limit.quota_code, now)
-                    _, _, start, end, _ = sources[0]
+                    _, _, start, end, _ = next(
+                        (source for source in sources if source[2] is not None), sources[0]
+                    )
                 except QuotaError as exc:
                     quotas.append({**item, "error": exc.code})
                     continue
@@ -2015,7 +2049,9 @@ class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
                                     for g in self._packages(
                                         db, tenant, subject, code, limit.quota_code, now
                                     )
-                                ),
+                                )
+                                if start is not None
+                                else 0,
                             }
                             for code in services
                         ],

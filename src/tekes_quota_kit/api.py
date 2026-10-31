@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import __version__
@@ -65,6 +65,16 @@ class DefaultInitializationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_plan_id: str = Field(min_length=1, max_length=128)
     source: DefaultInitializationSource
+    package_codes: list[
+        Annotated[str, StringConstraints(strict=True, min_length=1, max_length=64, pattern=r"\S")]
+    ] = Field(default_factory=list, min_length=1, max_length=100)
+
+    @field_validator("package_codes")
+    @classmethod
+    def unique_package_codes(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("Package codes must be unique")
+        return value
 
 
 class DescriptionConfig(BaseModel):
@@ -267,7 +277,11 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     ) -> JSONResponse:
         try:
             result = kit.initialize_defaults(
-                caller.tenant_id, subject_id, payload.default_plan_id, payload.source.model_dump()
+                caller.tenant_id,
+                subject_id,
+                payload.default_plan_id,
+                payload.source.model_dump(),
+                package_codes=payload.package_codes or None,
             )
         except SQLAlchemyError as exc:
             raise QuotaError(

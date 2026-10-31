@@ -41,6 +41,8 @@ it or put it in Issue/PR evidence. Fields:
 | vip_week_plan_id | One formal VIP Level package, seven days |
 | multi_plan_id | VIP + bonus, both seven days, ordered |
 | disabled_plan_id | Disabled VIP plan for blocked/replay cases |
+| star_vip_plan_id | VIP seven days first, permanent base second; base includes a finite zero term rule |
+| vip_package_code, star_package_code | Stable entry codes to select both or base only on that plan |
 
 The fixture VIP is explicitly **synthetic** `fixture_vip`, with 20 visits per Level
 term. It does not guess a production VIP code. Production operators must inspect the
@@ -99,6 +101,13 @@ Use only synthetic users and server credentials:
    client before persisting it), restart the caller and retry the same request; verify
    one fact and one set of package IDs. Quota database concurrency/failure injection
    tests supply the separate transaction evidence; a mock HTTP test is not a substitute.
+7. With the combined plan, send both codes in reverse request order and verify plan
+   order still applies. Initialize a different synthetic subject with only the base
+   code: it gets a permanent base and no VIP. Repeating the first subject with just
+   base must replay its original two-package fact without extending VIP. Omitted
+   codes still grant all; empty/null/duplicate codes fail validation, unknown codes
+   on a first attempt fail without creating a fact. Changing an estate selection
+   affects future first bindings only; it does not revoke an earlier user's packages.
 
 Quota does not implement SKZY binding/history logic. New users initialize only
 after SKZY's first-binding decision; existing users are not automatically backfilled.

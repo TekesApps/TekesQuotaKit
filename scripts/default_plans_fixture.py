@@ -69,6 +69,12 @@ def main():
         for level, amount in (("fixture_vip", 20), ("fixture_bonus", 3), ("fixture_paid", 1)):
             kit.put_level(tenant, level, publication_status="formal")
             kit.put_limit(tenant, level, "visits", "finite", amount, "level_term", "UTC")
+        kit.put_quota(tenant, "restricted", "use", "per_use")
+        kit.put_service(tenant, "fixture_restricted", "restricted")
+        kit.put_level(tenant, "fixture_star", publication_status="formal")
+        kit.put_limit(tenant, "fixture_star", "visits", "finite", 4, "month", "UTC")
+        kit.put_limit(tenant, "fixture_star", "restricted", "finite", 0, "level_term", "UTC")
+        kit.put_limit(tenant, "fixture_vip", "restricted", "unlimited", None, "level_term", "UTC")
         for role, key_field in (
             ("default_catalog", "catalog_key"),
             ("default_init", "initialization_key"),
@@ -95,6 +101,22 @@ def main():
         )["id"]
         config["disabled_plan_id"] = kit.create_default_plan(
             tenant, "Synthetic disabled", False, [vip]
+        )["id"]
+        config["vip_package_code"] = vip["code"]
+        config["star_package_code"] = "star-base"
+        config["star_vip_plan_id"] = kit.create_default_plan(
+            tenant,
+            "Synthetic VIP seven days plus permanent base",
+            True,
+            [
+                vip,
+                dict(
+                    code="star-base",
+                    name="Permanent base",
+                    level_code="fixture_star",
+                    validity_days=None,
+                ),
+            ],
         )["id"]
         with open(
             manifest, "x", encoding="utf-8", opener=lambda path, flags: os.open(path, flags, 0o600)
