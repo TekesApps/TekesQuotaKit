@@ -25,6 +25,10 @@ class DescriptionConfig(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
 
 
+class LevelConfig(DescriptionConfig):
+    publication_status: Literal["test", "formal"] | None = None
+
+
 class QuotaConfig(DescriptionConfig):
     unit_code: str = Field(min_length=1, max_length=32)
     metering_mode: Literal["per_use", "reported_usage"]
@@ -33,6 +37,7 @@ class QuotaConfig(DescriptionConfig):
 class ServiceConfig(DescriptionConfig):
     # Existing integrations omitting the field must not re-enable a disabled Service.
     enabled: bool | None = Field(default=None, strict=True)
+    status: Literal["enabled", "disabled", "incoming"] | None = None
     quota_code: str | None = Field(default=None, min_length=1, max_length=64)
     service_kind: Literal["atomic", "composite"] = "atomic"
     redemption_mode: Literal["instant", "durable"] | None = None
@@ -41,7 +46,8 @@ class ServiceConfig(DescriptionConfig):
 
 
 class ServiceStatusConfig(BaseModel):
-    enabled: bool = Field(strict=True)
+    enabled: bool | None = Field(default=None, strict=True)
+    status: Literal["enabled", "disabled", "incoming"] | None = None
 
 
 class ServiceMemberConfig(BaseModel):
@@ -72,6 +78,12 @@ class MemberRequest(BaseModel):
     level_code: str = Field(min_length=1, max_length=64)
     expires_at: datetime | None = None
     renew_term: bool = False
+
+
+class MembershipPurchaseRequest(BaseModel):
+    level_code: str = Field(min_length=1, max_length=64)
+    expected_level: str = Field(min_length=1, max_length=64)
+    period_days: int = Field(ge=1, le=3660, strict=True)
 
 
 class MemberItem(MemberRequest):
@@ -200,8 +212,13 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         return {"quota_code": quota_code}
 
     @app.put("/v1/admin/tenants/{tenant}/levels/{level_code}", dependencies=[Depends(admin)])
-    def put_level(tenant: str, level_code: str, payload: DescriptionConfig | None = None) -> dict:
-        kit.put_level(tenant, level_code, description=payload.description if payload else None)
+    def put_level(tenant: str, level_code: str, payload: LevelConfig | None = None) -> dict:
+        kit.put_level(
+            tenant,
+            level_code,
+            description=payload.description if payload else None,
+            publication_status=payload.publication_status if payload else None,
+        )
         return {"level_code": level_code}
 
     @app.put("/v1/admin/tenants/{tenant}/services/{service_code}", dependencies=[Depends(admin)])
@@ -216,6 +233,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
             session_ttl_seconds=payload.session_ttl_seconds,
             description=payload.description,
             enabled=payload.enabled,
+            status=payload.status,
         )
         return {"service_id": service_id, "service_code": service_code}
 
@@ -223,7 +241,7 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         "/v1/admin/tenants/{tenant}/services/{service_code}/status", dependencies=[Depends(admin)]
     )
     def set_service_status(tenant: str, service_code: str, payload: ServiceStatusConfig) -> dict:
-        return kit.set_service_enabled(tenant, service_code, payload.enabled)
+        return kit.set_service_status(tenant, service_code, payload.status, enabled=payload.enabled)
 
     @app.put(
         "/v1/admin/tenants/{tenant}/services/{parent}/members/{child}",
@@ -442,6 +460,51 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     @app.get("/v1/tokens/unsettled")
     def unsettled(caller: Annotated[Client, Depends(provider)]) -> list[dict]:
         return kit.unsettled(caller)
+
+    @app.get("/v1/membership/catalog")
+    def membership_catalog(caller: Annotated[Client, Depends(membership)]) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_catalog(caller.tenant_id), headers={"Cache-Control": "no-store"}
+        )
+
+    @app.put("/v1/members/{subject_id}/purchases/{order_code}")
+    def grant_membership_purchase(
+        subject_id: SubjectId,
+        order_code: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        payload: MembershipPurchaseRequest,
+        caller: Annotated[Client, Depends(membership)],
+    ) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_purchase(
+                caller.tenant_id,
+                subject_id,
+                order_code,
+                payload.level_code,
+                payload.expected_level,
+                payload.period_days,
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/v1/members/{subject_id}/purchases/{order_code}/revoke")
+    def revoke_membership_purchase(
+        subject_id: SubjectId,
+        order_code: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        payload: MembershipPurchaseRequest,
+        caller: Annotated[Client, Depends(membership)],
+    ) -> JSONResponse:
+        return JSONResponse(
+            kit.membership_purchase(
+                caller.tenant_id,
+                subject_id,
+                order_code,
+                payload.level_code,
+                payload.expected_level,
+                payload.period_days,
+                revoke=True,
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
 
     # Member sync: a `membership` client keeps the member list of its own business system.
     @app.put("/v1/members/{subject_id}")

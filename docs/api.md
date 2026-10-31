@@ -53,14 +53,16 @@ Since 0.11.0 `subject_id` is a string of 1 to 128 characters matching `^[A-Za-z0
 
 ## Service availability (since 0.13.0)
 
-A Service has a boolean `enabled`, default true. It applies to every Level, including
-unlimited VIP limits. Disabling availability does not delete the Service or its history.
+A Service has release `status` (`enabled`, `disabled`, `incoming`) and a compatibility
+boolean `enabled` which is true only for status enabled. The default is enabled.
+The release state applies to every Level, including unlimited VIP limits. Disabling availability does not delete the Service or its history.
 
 - Configure `enabled` in the existing admin Service PUT; omission or null preserves
   the stored state (defaults to true for a new Service).
-- `PATCH /v1/admin/tenants/{tenant}/services/{service_code}/status` accepts exactly
-  `{"enabled": false}` or `{"enabled": true}` and returns `service_id`, `service_code`
-  and `enabled`. Admin authentication is required. An unknown Service returns 404.
+- `PATCH /v1/admin/tenants/{tenant}/services/{service_code}/status` accepts
+  `{"status": "enabled"}`, `{"status": "disabled"}`, or `{"status": "incoming"}`;
+  legacy boolean bodies remain compatible. It returns `service_id`, `service_code`,
+  `status`, and `enabled`. Admin authentication is required. An unknown Service returns 404.
 - New `token`, `redeem`, `begin`, child `use`, and `GET /v1/quota` requests for a
   disabled Service return **403 `service_disabled`**, with `service_id`, `service_code`
   and `enabled: false`. Retries of admission requests also return this status.
@@ -81,21 +83,21 @@ to the credential's tenant. Its backend must authenticate the person before choo
 
 Each `quotas[]` entry contains:
 
-- `service_details`: all directly associated Services, including `service_id`,
-  `service_code`, `description`, and the boolean `enabled`. Disabled entries remain
-  identifiable; a miniapp should display only entries with `enabled === true`.
+- `service_details`: enabled and incoming associated Services, including `service_id`,
+  `service_code`, `description`, `status`, and boolean `enabled`. Disabled entries are
+  omitted. Incoming entries are previews, not callable entitlements.
 - `services`: enabled Service codes only (the existing string-list type is preserved).
 - `service_balances`: enabled Services only. Disabling one Service does not disable
   another Service using the same Quota or change the shared usage/limit.
 
-A disabled Service is a successful configuration/entitlement lookup with `enabled: false`,
-while attempting to call or query its usable balance returns the explicit domain error:
+A disabled Service is omitted from membership discovery. Attempting to call or query
+its usable balance returns the explicit domain error:
 
 ```json
-{"code":"service_disabled","message":"Service is disabled","service_id":3,"service_code":"health_measurement","enabled":false}
+{"code":"service_disabled","message":"Service is disabled","service_id":3,"service_code":"health_measurement","enabled":false,"status":"disabled"}
 ```
 
-Admin table browsing includes enabled and disabled Services, so operators can re-enable them.
+Admin table browsing includes all three Service states, so operators can re-enable them.
 No availability filter is applied to historical tokens, ledger or usage records.
 
 ## Error format
@@ -799,3 +801,60 @@ Only finite positive current-period caps have a sortable ratio. Unknown/historic
 unlimited and zero caps always sort last; ties use descending record ID. The ratio
 is not rounded for sorting even though the console displays one decimal place.
 No schema migration or accounting/configuration change is required.
+
+
+### GET /v1/membership/catalog
+
+Requires a membership-role client. Returns the current tenant's Level descriptions,
+Limit values/periods/timezones, Quota units and Service enabled flags under schema
+`tekes-quotakit-membership-catalog/v1`, with `Cache-Control: no-store`. No members,
+usage, assignments, client secrets or cross-tenant configuration are included.
+Reads do not assign membership or consume quota. Business backends may project
+this into their own public catalog; clients should call that business backend.
+The quota catalog does not define checkout products, authoritative order prices,
+renewal policy or payment fulfillment; these remain the business system's responsibility.
+
+
+### Business-verified membership purchase delivery
+
+Membership credentials can call `PUT /v1/members/{subject_id}/purchases/{order_code}`
+with `level_code`, `expected_level` and integer `period_days`. The business backend
+must first verify the payment and upgrade eligibility. The tenant/order identity is
+immutable and repeated requests return the same durable receipt. A changed current
+Level rejects a different order rather than silently downgrading a later purchase.
+
+`POST /v1/members/{subject_id}/purchases/{order_code}/revoke` takes the same identity
+and records a refund tombstone even before delivery. Repeated refunds are safe; a
+late payment callback cannot revive a refunded purchase. Only the exact purchased
+assignment is revoked; later purchases and auxiliary Level packages are preserved.
+The business backend owns order price, full-refund policy and provider signatures.
+
+## Service release status (0.15.0)
+
+Service `status` is `enabled`, `disabled`, or `incoming`. Admin PUT and status PATCH
+accept this enum; omitted status preserves the existing state. The legacy `enabled`
+boolean remains compatible (`true` -> enabled, `false` -> disabled), with conflicting
+status/boolean pairs rejected. Non-admin callers cannot change it.
+
+- `enabled`: callable; included in membership catalog and active service lists.
+- `disabled`: not returned in membership catalog/service details; new calls rejected.
+- `incoming`: returned as a preview, never in callable service or balance lists;
+  new calls return 403 `service_incoming`. Existing settlement/refund remains allowed.
+
+A Level includes a service through its positive or unlimited Quota rule. Missing or
+zero quota is not a coming-soon entitlement. Business projections must hide these
+rows and keep incoming separate from enabled siblings sharing the same quota.
+Admin retains all three states for configuration. No existing disabled service is
+automatically promoted to incoming.
+
+## Level publication (0.16.0)
+
+Level `publication_status` is `test` (测试档位) or `formal` (正式档位).
+New Levels default to test. Admin Level PUT accepts the field; omission or null
+preserves the current value. Editing notes must not promote a test Level.
+Operators can promote to formal after testing, or return it to test.
+The membership catalog returns ONLY formal Levels and marks each returned Level
+`publicationStatus: formal`. Admin configuration and private existing memberships
+retain all Levels for internal testing and history. Publication does not change
+quotas, assignments, payment prices, or user-specific auxiliary grants. Formal
+publication does not automatically create a purchasable business SKU.
