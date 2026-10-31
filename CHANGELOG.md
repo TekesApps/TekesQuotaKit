@@ -410,7 +410,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.16.2...v0.17.0
 [0.8.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...v0.8.0
