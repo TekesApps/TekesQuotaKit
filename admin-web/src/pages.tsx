@@ -389,7 +389,10 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const services = useCodes('tq_services', 'service_code', tenant, revision);
   const columns: Column[] = [
     column('client_id'),
-    column('service_code', { render: row => ['membership', 'default_catalog', 'default_init'].includes(String(row.role)) ? <span className="muted">不绑定（{text(row.role)}）</span> : <span className="code">{text(row.service_code)}</span> }),
+    column('service_code', { render: row => {
+      const unboundRoles: Record<string, string> = { membership: '会员同步', default_catalog: '默认方案目录只读', default_init: '默认初始化发放' };
+      return unboundRoles[String(row.role)] ? <span className="muted">不绑定（{unboundRoles[String(row.role)]}）</span> : <span className="code">{text(row.service_code)}</span>;
+    } }),
     column('role'),
     { key: '_actions', title: '操作', render: row => <Actions items={[
       { label: '轮换密钥', danger: true, action: () => void rotate(row) },

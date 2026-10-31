@@ -271,6 +271,9 @@ SQLite 升级办法和 API 文档。create_all 只适合创建缺表，不能当
   六组检查含完整分页/停用展示、角色隔离、多包、失败无包、跨方案 replay。
   A/B 实际初始化时间分别为 `09:22:03.872224Z` 与 `09:22:05.314493Z`，
   各自到期均准确晚 604800 秒，重试不续期。没有使用 clock mock 证明个人期限。
-- Ruff 和 diff whitespace 检查通过。管理端 build/e2e 与 SKZY 全链路结果继续回填 Issue。
+- Ruff 和 diff whitespace 检查通过。管理端 build 与完整 Playwright **19/19** 通过；
+  首轮 17 通过/2 失败及修复原因保留在 [完整验收记录](../validation/default-plans-acceptance-20261031.md)。
+  精确候选重启后 SKZY 直接 HTTP 七组、Admin→Backend worker→Quota 全链路七组通过，
+  包括真实远端已提交后丢响应、原计划重试与解绑重绑不续赠；详见验收记录的独立证据。
 - 未验证/未执行：生产 VIP Level 的真实标识/发布状态、三个真实小区配置、真实用户发放、
   生产迁移/部署和物理客户端验收。不能把合成结果称为生产生效。

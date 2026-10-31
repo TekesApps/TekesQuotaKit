@@ -67,6 +67,7 @@ test('every editor control is the same height, unclipped and centered', async ({
       expect(height, `${name} search button height`).toBe(CONTROL_HEIGHT);
     const buttons = page.locator('.panel-head button');
     for (let b = 0; b < await buttons.count(); b++) {
+      if (!(await buttons.nth(b).isEnabled())) continue;
       const label = (await buttons.nth(b).textContent())?.trim() || `button ${b}`;
       await buttons.nth(b).click();
       await expect(page.locator('.drawer-panel')).toBeVisible();

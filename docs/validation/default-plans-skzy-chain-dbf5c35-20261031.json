@@ -1,0 +1,24 @@
+{
+  "transport": "actual Admin and Quota HTTP, fresh Backend worker processes",
+  "checks": [
+    "admin_proxy_reads_real_quota_catalog_without_exposing_credentials",
+    "admin_mobile_and_plain_bindings_commit_authoritative_snapshots_and_no_plan_terminal",
+    "fresh_backend_worker_process_recovers_transport_failure_and_applies_real_quota_packages",
+    "completed_and_unconfigured_bindings_are_not_dispatched_again",
+    "lost_real_quota_committed_http_response_recovers_original_fact_without_new_packages",
+    "estate_plan_change_does_not_change_pending_original_plan",
+    "unbind_rebind_does_not_restart_or_duplicate_initialization"
+  ],
+  "synthetic_subjects": {
+    "vip": "1793438874678966",
+    "multi": "1793438874678967",
+    "none": "1793438874678968",
+    "lost_response": "1793438874678969"
+  },
+  "database": "disposable SQLite shared by Admin and Backend",
+  "unverified": [
+    "production",
+    "physical client",
+    "same-chain MySQL engine (separate tests)"
+  ]
+}
