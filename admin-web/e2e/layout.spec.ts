@@ -61,6 +61,8 @@ test('every editor control is the same height, unclipped and centered', async ({
     const nav = navs.nth(i);
     const name = (await nav.textContent())?.trim() || `page ${i}`;
     await nav.click();
+    if (name === '默认方案') await expect(page.getByRole('button', { name: '新增方案', exact: true })).toBeEnabled();
+    if (name === '客户端凭据') await expect(page.getByRole('button', { name: '签发服务凭据', exact: true })).toBeEnabled();
     const pageForm = await measure(page, '.main form');
     if (pageForm.length) expectAligned(`${name} (page)`, pageForm);
     for (const height of await page.locator('.search-bar button').evaluateAll(els => els.map(el => el.getBoundingClientRect().height)))
@@ -566,6 +568,43 @@ test('creates, edits, orders and toggles a multi-Level default plan', async ({ p
   await page.getByRole('button', { name: '保存方案' }).click();
   const updated = page.locator('tbody tr').filter({ hasText: '居民首次绑定新' });
   await expect(updated).toContainText('第二份欢迎额度');
+});
+
+test('private default plans can use a test Level without promoting it', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.getByRole('button', { name: 'Level 等级', exact: true }).click();
+  await page.getByRole('button', { name: '新增 Level', exact: true }).click();
+  await page.getByLabel('Level code').fill('private-test-level');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  const testLevel = page.locator('tbody tr').filter({ has: page.getByRole('cell', { name: 'private-test-level', exact: true }) });
+  await expect(testLevel).toContainText('测试档位');
+  await page.getByRole('button', { name: '等级额度', exact: true }).click();
+  await page.getByRole('button', { name: '新增等级额度', exact: true }).click();
+  await page.locator('.drawer-panel').getByRole('combobox', { name: 'Level', exact: true }).click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'private-test-level' }).click();
+  await page.locator('.drawer-panel').getByRole('combobox', { name: 'Quota', exact: true }).click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'visits' }).click();
+  await page.locator('.drawer-panel').getByRole('spinbutton', { name: /限额/ }).fill('5');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+
+  await page.getByRole('button', { name: '默认方案', exact: true }).click();
+  await expect(page.getByRole('button', { name: '新增方案', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '新增方案', exact: true }).click();
+  await page.getByLabel('方案名称').fill('测试档位默认方案');
+  await page.getByLabel('包 1 标识').fill('private-test');
+  await page.getByLabel('包 1 名称').fill('测试包');
+  await page.getByLabel('包 1 Level').click();
+  await expect(page.locator('.ant-select-dropdown:visible')).toContainText('private-test-level · 测试档位');
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'private-test-level · 测试档位' }).click();
+  await page.getByRole('button', { name: '保存方案' }).click();
+  const plan = page.locator('tbody tr').filter({ hasText: '测试档位默认方案' });
+  await expect(plan).toContainText('private-test-level · 测试档位');
+
+  await page.getByRole('button', { name: 'Level 等级', exact: true }).click();
+  await expect(page.locator('tbody tr').filter({ has: page.getByRole('cell', { name: 'private-test-level', exact: true }) })).toContainText('测试档位');
 });
 
 

@@ -465,13 +465,13 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
         <label>方案名称 *<input value={name} required maxLength={100} onChange={e => setName(e.target.value)} /></label>
         <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} onChange={e => setEnabled(e.target.checked)} /></label>
       </div>
-      <p className="muted">ID 创建后固定。每个包使用正式 Level；额度在方案保存时固定到修订并用于发放后的实际计算。</p>
-      <div className="table-wrap"><table><thead><tr><th>顺序</th><th>包标识</th><th>包名称</th><th>正式 Level</th><th>有效天数</th><th>操作</th></tr></thead><tbody>
+      <p className="muted">ID 创建后固定。每个包可使用同租户已有的测试或正式 Level；档位类型只控制公开会员目录。额度在方案保存时固定到修订并用于发放后的实际计算。</p>
+      <div className="table-wrap"><table><thead><tr><th>顺序</th><th>包标识</th><th>包名称</th><th>Level（档位类型）</th><th>有效天数</th><th>操作</th></tr></thead><tbody>
         {packages.map((item, index) => <tr key={index}>
           <td>{index + 1}</td>
           <td><input aria-label={`包 ${index + 1} 标识`} required maxLength={64} value={item.code} onChange={e => update(index, { code: e.target.value })} /></td>
           <td><input aria-label={`包 ${index + 1} 名称`} required maxLength={100} value={item.name} onChange={e => update(index, { name: e.target.value })} /></td>
-          <td><Select aria-label={`包 ${index + 1} Level`} showSearch optionFilterProp="label" options={levels} placeholder="选择正式 Level" value={item.level_code || undefined} onChange={value => update(index, { level_code: value })} /></td>
+          <td><Select aria-label={`包 ${index + 1} Level`} showSearch optionFilterProp="label" options={levels} placeholder="选择 Level" value={item.level_code || undefined} onChange={value => update(index, { level_code: value })} /></td>
           <td><input aria-label={`包 ${index + 1} 有效天数`} type="number" min={1} max={3660} placeholder="永久" value={item.validity_days ?? ''} onChange={e => update(index, { validity_days: e.target.value === '' ? null : Number(e.target.value) })} /></td>
           <td><div className="toolbar"><button type="button" className="secondary" disabled={index === 0} onClick={() => setPackages(rows => { const next = [...rows]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>上移</button><button type="button" className="secondary" disabled={index === packages.length - 1} onClick={() => setPackages(rows => { const next = [...rows]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })}>下移</button><button type="button" className="secondary" disabled={packages.length <= 1} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button></div></td>
         </tr>)}
@@ -497,11 +497,11 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
         const page = await api<{ rows: Row[]; total: number }>(`/tables/tq_levels?tenant=${enc(tenant)}&limit=200&offset=${pageOffset}`);
         rows.push(...page.rows);
         total = page.total;
-        if (!page.rows.length && pageOffset < total) throw new Error('正式 Level 分页读取不完整');
+        if (!page.rows.length && pageOffset < total) throw new Error('Level 分页读取不完整');
         pageOffset += page.rows.length;
       } while (pageOffset < total);
-      if (active) setLevels(rows.filter(row => row.publication_status === 'formal').map(row => ({ value: String(row.level_code), label: String(row.level_code) })));
-    })().catch(e => { if (active) { setLevels([]); setLevelsError(e instanceof Error ? e.message : '正式 Level 读取失败'); } })
+      if (active) setLevels(rows.map(row => ({ value: String(row.level_code), label: `${row.level_code} · ${row.publication_status === 'formal' ? '正式档位' : '测试档位'}` })));
+    })().catch(e => { if (active) { setLevels([]); setLevelsError(e instanceof Error ? e.message : 'Level 列表读取失败'); } })
       .finally(() => { if (active) setLevelsLoading(false); });
     return () => { active = false; };
   }, [tenant, revision]);
@@ -515,6 +515,7 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
     return () => { active = false; };
   }, [tenant, revision, offset]);
   const plans = data?.items ?? [];
+  const levelLabels = new Map(levels.map(level => [level.value, level.label]));
   async function toggle(plan: DefaultPlan) {
     setError('');
     try {
@@ -523,14 +524,14 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
     } catch (e) { setError(e instanceof Error ? e.message : '更新方案状态失败'); }
   }
   return <section className="panel">
-    <div className="panel-head"><div><h2>默认方案</h2><p className="muted">默认方案包含多个按顺序发放的正式 Level 包。停用方案保留在目录中，供小区配置显示；已发权益不随方案编辑变化。</p></div><button disabled={!levels.length || levelsLoading || !!levelsError} onClick={() => setEditing(null)}>新增方案</button></div>
-    {levelsError && <div className="error-box" role="alert">正式 Level 加载失败：{levelsError}</div>}
-    {!levels.length && !levelsLoading && !levelsError && <p className="muted">请先在 Level 等级中建立正式档位，并配置对应等级额度。</p>}
+    <div className="panel-head"><div><h2>默认方案</h2><p className="muted">默认方案包含多个按顺序发放的同租户 Level 包。测试档位也可用于私有默认方案；正式状态只控制公开会员目录。停用方案保留在目录中，供小区配置显示；已发权益不随方案编辑变化。</p></div><button disabled={!levels.length || levelsLoading || !!levelsError} onClick={() => setEditing(null)}>新增方案</button></div>
+    {levelsError && <div className="error-box" role="alert">Level 列表加载失败：{levelsError}</div>}
+    {!levels.length && !levelsLoading && !levelsError && <p className="muted">请先在 Level 等级中建立档位，并配置对应等级额度。</p>}
     {error && <div className="error-box" role="alert">{error}</div>}
     <div className="table-wrap"><table><thead><tr><th>名称</th><th>方案 ID</th><th>状态</th><th>修订</th><th>有序 quota 包</th><th>操作</th></tr></thead><tbody>
       {loading || error || !plans.length ? <tr><td colSpan={6} className={error ? 'error' : 'muted'}>{loading ? '正在加载…' : error || '暂无默认方案'}</td></tr> : plans.map(plan => <tr key={plan.id}>
         <td>{plan.name}</td><td><span className="code">{plan.id}</span></td><td><Status value={plan.enabled ? 'enabled' : 'disabled'} /></td><td>{plan.revision}</td>
-        <td>{plan.packages.map((item, i) => <div key={item.code}>{i + 1}. {item.name} · {item.level_code} · {item.validity_days === null ? '永久' : `${item.validity_days} 天`}</div>)}</td>
+        <td>{plan.packages.map((item, i) => <div key={item.code}>{i + 1}. {item.name} · {levelLabels.get(item.level_code) || item.level_code} · {item.validity_days === null ? '永久' : `${item.validity_days} 天`}</div>)}</td>
         <td><div className="toolbar"><button className="secondary" onClick={() => setEditing(plan)}>编辑</button><button className="secondary" onClick={() => void toggle(plan)}>{plan.enabled ? '停用' : '启用'}</button></div></td>
       </tr>)}
     </tbody></table></div>

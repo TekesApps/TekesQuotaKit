@@ -44,9 +44,10 @@ it or put it in Issue/PR evidence. Fields:
 
 The fixture VIP is explicitly **synthetic** `fixture_vip`, with 20 visits per Level
 term. It does not guess a production VIP code. Production operators must inspect the
-actual tenant Level configuration and explicitly choose the correct formal Level.
+actual tenant Level configuration and explicitly choose the correct Level.
 Earlier deployment notes classify an SKZY VIP as test; that is not live evidence.
-Do not silently promote it. Resolve publication intentionally before using it in a plan.
+Since 0.17.1 a private plan may reference that test Level directly; do not promote or
+clone it merely to configure this plan. Its public membership-catalog visibility stays unchanged.
 
 ## Create a seven-day plan without changing VIP
 
@@ -63,7 +64,7 @@ Use admin `POST /v1/admin/tenants/{tenant}/default-plans`:
   "name": "VIP 七天", "enabled": true,
   "packages": [{
     "code": "vip-week", "name": "VIP 七天",
-    "level_code": "confirmed-formal-vip-code", "validity_days": 7
+    "level_code": "confirmed-vip-code", "validity_days": 7
   }]
 }
 ```

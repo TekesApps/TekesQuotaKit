@@ -121,8 +121,10 @@ SKZY 对应合同 `SK-Backend/docs/contracts/quota-default-initialization-v1.md`
 不能只添加角色常量就意外赋予所有 consumer 初始化权限。
 新增会员购买会以 `package_code=membership` 发放主会员并遮蔽之前主会员；默认赠送必须是
 独立追加包，不能借此切换或遮蔽付费会员。新 Level 的 `publication_status=test/formal`
-是另一维度；约定默认方案只引用 formal Level，方案 enabled 不代替 Level 发布状态，
-此项包配置校验已随 B 一并确认。
+是另一维度。0.17.0 最初额外限制只引用 formal；0.17.1 双方根据实际源码共同修订：
+原 publication_status 仅控制公开会员目录可见性，不是所有真实发放的禁止开关。
+私有默认方案允许管理员显式选择同 tenant 任意已有 Level（包括 test），不提升状态或 clone，
+不改变公开会员目录。方案 enabled 与 default_init 独立授权仍是发放闸门。
 
 ## 已冻结的最小补充（2026-10-31）
 

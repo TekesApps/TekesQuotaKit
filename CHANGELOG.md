@@ -8,6 +8,14 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-31
+
+### Fixed
+
+- Private default plans may explicitly use a tenant's test Level without publishing
+  it in the membership catalog. Operators can grant a seven-day snapshot of VIP while
+  keeping the original VIP publication state and public catalog unchanged.
+
 ## [0.17.0] - 2026-10-31
 
 ### Added
@@ -389,7 +397,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.16.2...v0.17.0
 [0.8.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.2...v0.7.3

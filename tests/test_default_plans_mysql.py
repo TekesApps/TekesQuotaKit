@@ -164,3 +164,18 @@ def test_mysql_subject_case_and_tenant_are_distinct_initialization_keys():
         )
         == 3
     )
+
+
+def test_mysql_private_test_level_snapshot_keeps_public_catalog_unchanged():
+    kit, tenant = setup_mysql()
+    kit.put_level(tenant, "gift-a", publication_status="test")
+    before = kit.membership_catalog(tenant)
+    plan = kit.create_default_plan(tenant, "Private VIP", True, [package("vip", "gift-a")])
+    kit.put_limit(tenant, "gift-a", "visits", "finite", 0, "month", "UTC")
+    kit.initialize_defaults(tenant, "private-subject", plan["id"], source("private"))
+    key = f"private-vip-{uuid.uuid4().hex}"
+    kit.put_client(f"private-{uuid.uuid4().hex[:8]}", key, tenant, "visit", "consumer")
+    caller = kit.client(key, "provider")
+    kit.redeem(caller, "private-subject", "visit", "private-use")
+    assert kit.balance(caller, "private-subject")["remaining"] == 2
+    assert kit.membership_catalog(tenant) == before
