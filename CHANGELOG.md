@@ -8,6 +8,14 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Tenant default plans with ordered formal Level packages, immutable revision/issued
+  limit snapshots, admin editing and independent catalog/initializer Client roles.
+- Once-per-tenant/subject default initialization with atomic additive grants and durable
+  replay facts. Per-user validity starts at actual grant time; seven days is 604800 seconds.
+- MySQL/SQLite additive migrations, API contract, and a synthetic localhost HTTP fixture.
+
 ## [0.13.3] - 2026-10-16
 
 ### Added

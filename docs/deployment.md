@@ -399,3 +399,28 @@ to test. Explicitly classify known internal test Levels in the business deployme
 plan before switching the service. SKZY classifies its existing VIP as test while
 星/银/金/铂金 remain formal. This classification belongs to the business deployment,
 not a name-based rule in QuotaKit or Backend. Auxiliary grants remain private.
+
+### Default plans (unreleased)
+
+This is a candidate migration, not authorization to deploy. It adds four tables only;
+old assignments, paid packages and usage are not rewritten. Before starting candidate
+code against an existing v0.16.2 schema, take a backup, stop writers, review and apply
+`migrations/add_default_plans_mysql.sql` with an explicit database selected. MySQL DDL
+is not transactionally rolled back: preserve failures and inspect tables before retrying
+an interrupted script. New installations use `migrations/create_tables_mysql.sql`.
+Verify InnoDB/utf8mb4 defaults, subject/opaque ID ascii_bin columns, foreign keys,
+JSON columns and DATETIME(6), then run synthetic initialization/replay/paid preservation.
+The incremental SQL is one-time, not an idempotent migration runner. Migrate a cloned
+old database first; do not use `init-schema` as an existing-schema upgrade policy.
+
+SQLite is for non-production checks. With writers stopped and a file backup preserved,
+apply `migrations/add_default_plans_sqlite.sql` to the selected file via sqlite3
+`executescript` (or `.read` in the sqlite3 CLI); it creates only missing new tables.
+The SQLite migration test preserves an old assignment and checks repeat application.
+
+Do not remove initialization facts on package expiry/revocation or estate changes.
+Snapshots are authoritative inputs to existing Level accounting for default packages;
+back up all `tq_*` tables together. Rolling application code back leaves additive tables
+intact, but older code does not understand frozen default package rules. Quiesce grant
+traffic and resolve that compatibility before rollback; never delete facts to recover.
+See [the non-production fixture](default-plans-integration.md) for reproducible HTTP checks.

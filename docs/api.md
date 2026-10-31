@@ -27,7 +27,9 @@ Roles:
 | `issuer` | Endpoints that require `issuer` |
 | `provider` | Endpoints that require `provider` |
 | `consumer` | Both `issuer` and `provider` endpoints |
-| `membership` | Only the `/v1/members` endpoints. Not bound to a Service; `consumer` does not include it. |
+| `membership` | `/v1/members` and `/v1/membership/catalog`. Not bound to a Service; `consumer` does not include it. |
+| `default_catalog` | Only GET `/v1/default-plans`; no Service binding. |
+| `default_init` | Only POST `/v1/subjects/{subject_id}/default-initialization`; no Service binding. |
 
 A client key whose role does not satisfy the endpoint is rejected exactly like an unknown key: 401 with code `unauthorized`.
 
@@ -139,7 +141,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | `unknown_level` | 404 | Level not found in the tenant. |
 | `unknown_member` | 404 | Service member mapping not found (DELETE). |
 | `invalid_token` | 404 | Token not found. |
-| `invalid_role` | 400 | Role is not `issuer`, `provider`, or `consumer`. |
+| `invalid_role` | 400 | Role is not one of the Client roles listed above. |
 | `weak_client_key` | 400 | Client key shorter than 32 characters. |
 | `invalid_mode` | 400 | `metering_mode` is not `per_use` or `reported_usage`. |
 | `invalid_unit` | 400 | A `per_use` Quota must have `unit_code` `use`. |
@@ -515,7 +517,7 @@ Creates or replaces a client with a key you supply.
 | `key` | string | At least 32 characters. Stored as SHA-256. |
 | `tenant_id` | string | 1 to 64 characters. |
 | `service_code` | string | 1 to 64 characters. |
-| `role` | string | `issuer`, `provider`, or `consumer`. |
+| `role` | string | `issuer`, `provider`, `consumer`, `membership`, `default_catalog`, or `default_init`. |
 
 Response: `{"client_id": "..."}`. Replacing an existing client overwrites its key, tenant, Service, and role immediately; the old key stops working. This route does not check that the Service exists. Prefer the provision endpoint, which generates the key and validates the Service.
 
@@ -656,7 +658,7 @@ Creates a client with a server-generated key, or rotates the key of an existing 
 | --- | --- | --- | --- |
 | `tenant_id` | string | | 1 to 64 characters. |
 | `service_code` | string | | 1 to 64 characters. The Service must exist (`unknown_service`, 404). Ignored for `membership`. |
-| `role` | string | | `issuer`, `provider`, `consumer`, or `membership` (422 otherwise). |
+| `role` | string | | `issuer`, `provider`, `consumer`, `membership`, `default_catalog`, or `default_init` (422 otherwise). |
 | `subject_id_definition` | string | stored value | Up to 500 characters, written by an operator: what `subject_id` is in this business system, for example `user_table.id`. Saved on the business system and quoted in every contract it issues. Required until one is stored (400 otherwise, and no key is generated). Once stored it cannot be changed by issuing: omit it or send the same text; different text returns 409. Change it with `PUT /v1/admin/tenants/{tenant}` (the console's 业务系统 page). |
 | `base_url` | string | | 8 to 512 characters. `http` or `https` URL with a host and no credentials, query, fragment, or whitespace (400 otherwise). Written into the contract as the API base URL. |
 | `rotate` | boolean | `false` | Must be true to replace an existing client (`client_exists`, 409, otherwise). |
@@ -858,3 +860,147 @@ The membership catalog returns ONLY formal Levels and marks each returned Level
 retain all Levels for internal testing and history. Publication does not change
 quotas, assignments, payment prices, or user-specific auxiliary grants. Formal
 publication does not automatically create a purchasable business SKU.
+
+## Default plans and first initialization (unreleased)
+
+The business backend owns estate membership and eligibility. Quota stores `source` only
+for audit and never verifies estate/room ownership. A default plan groups 1–100 ordered
+Level packages. The operation is unique per **tenant + subject**, regardless of plan,
+estate or binding. Do not use membership sync, purchase, or complete-list package PUT
+to emulate this grant. The existing user ID contract applies without changes.
+
+### Credentials and catalog
+
+Provision two independent server credentials through the existing admin provision API:
+`default_catalog` for GET only; `default_init` for POST only. Both ignore `service_code`
+and store `*`. `consumer` and `membership` include neither capability. Tenant comes
+only from the credential; SKZY admin uses the catalog credential on its server and
+Backend uses the initializer. Never send these keys to a browser or miniapp.
+
+`GET /v1/default-plans?limit=100&offset=0` returns:
+
+```json
+{
+  "items": [{
+    "id": "opaque-plan-id", "name": "VIP seven days", "enabled": true, "revision": 1,
+    "packages": [{"code": "vip-week", "name": "VIP seven days"}]
+  }],
+  "total": 1, "limit": 100, "offset": 0
+}
+```
+
+`limit` defaults to 100 (1–100); `offset` defaults to 0 (>=0). Creation primary key
+ascending; disabled plans are included. Read every page until offset reaches total.
+There is no cross-page snapshot promise. Plans cannot be physically deleted and edits
+do not move their position. Responses use `Cache-Control: no-store`.
+
+### Initialize once
+
+`POST /v1/subjects/{subject_id}/default-initialization`:
+
+```json
+{
+  "default_plan_id": "opaque-plan-id",
+  "source": {
+    "system": "skzy", "event": "first_estate_binding",
+    "estate_id": "server-confirmed-estate", "binding_id": "stable-binding-record"
+  }
+}
+```
+
+All fields are required; unknown body/source fields (including `tenant_id`) are rejected.
+Plan ID is 1–128 characters; system/event 1–64; estate/binding 1–128. Values are strings.
+Authenticated, structurally valid calls first look for the saved fact, before checking
+the requested plan's existence or enabled status. A first success uses the **current
+locked revision at grant time**, not the revision seen when SKZY saved the binding.
+There is no request revision field.
+
+HTTP 200 for both first success and replay:
+
+```json
+{
+  "subject_id": "42",
+  "initialization": {
+    "id": "opaque-initialization-id", "default_plan_id": "opaque-plan-id",
+    "plan_revision": 1, "status": "applied", "applied_at": "2026-10-31T12:00:00Z",
+    "package_ids": ["123"]
+  },
+  "replayed": false
+}
+```
+
+Package instance IDs are strings, in plan order (currently decimal Assignment IDs).
+Treat plan/initialization/package IDs as opaque. Replay returns the same fact, timestamp
+and IDs with `replayed: true`, even when another, missing or disabled plan was requested.
+First source is never overwritten. No package renewal or replacement occurs on retry.
+
+All packages, immutable limit snapshots and initialization fact commit in one transaction.
+Any failed insert rolls back all grants. New packages append after existing packages;
+paid assignments, their counters and priority remain intact. Retries after concurrent
+requests, process restart, or a lost successful response cannot grant twice. Expiry,
+revocation, changing estates, or later plan/Level edits never clear the fact.
+Normal Service enable/disable policy still applies. Business backends must persist and
+retry their original request; Quota does not invent an estate or substitute a plan.
+
+### Management and snapshots
+
+Under `/v1/admin/tenants/{tenant}/default-plans` (existing admin auth):
+
+| Method | Suffix | Behavior |
+| --- | --- | --- |
+| GET | collection | Detailed paginated plans, same limit/offset rules |
+| POST | collection | Create and return stable generated ID, revision 1 |
+| GET | `/{plan_id}` | Detailed current plan |
+| PUT | `/{plan_id}` | Save full plan with expected revision; stale revision is 409 `default_plan_changed` |
+
+Create body (update also requires `revision`, integer >=1):
+
+```json
+{
+  "name": "VIP seven days", "enabled": true,
+  "packages": [{
+    "code": "vip-week", "name": "VIP seven days", "level_code": "actual-formal-vip-code",
+    "validity_days": 7
+  }]
+}
+```
+
+Names are non-blank, at most 100 characters; package codes are unique within a plan,
+non-blank, at most 64. Each Level must be formal and define limits. `validity_days`
+must be explicitly null (permanent) or an integer 1–3660. A `level_term` limit requires
+a non-null duration. Each saved revision copies the referenced Level's current limits;
+future plan revisions can differ, while issued snapshots are immutable and drive actual
+admission, charges, balance and refunds using the existing Level calculation engine.
+Ordinary packages continue to use live Level limits.
+
+Every issued package starts at that subject's `applied_at`; expiry and term end equal
+`applied_at + validity_days * 24 hours`. Seven-day VIP therefore lasts 604800 seconds
+per user, with different absolute deadlines for users granted at different times. A
+retry does not extend the term. This is independent of calendar-week quota periods.
+SKZY sends no Level, package content, duration or quota amount.
+
+Detailed management responses add `level_code` and `validity_days` to each package.
+Read issued dates using the existing admin `GET /subjects/{subject_id}/level-packages`
+under the same tenant prefix. Plan revisions, source and issued rules are retained in
+the four new `tq_default_*` tables for audit. No delete/reset initialization API exists.
+
+### Errors and integration
+
+| HTTP | Code/body | Meaning |
+| --- | --- | --- |
+| 401 | `unauthorized` in code/message | Unknown key or wrong role; missing Bearer uses existing detail body |
+| 404 | `default_plan_not_found` | Missing or foreign-tenant plan on first attempt |
+| 409 | `default_plan_disabled` | Disabled plan on first attempt |
+| 422 | FastAPI detail list | Invalid fields, extra fields, lengths, subject ID or pagination |
+| 503 | `default_catalog_unavailable` | Catalog database unavailable, including credential lookup |
+| 503 | `default_initialization_unavailable` | Initialization database unavailable, including credential lookup |
+
+Domain errors use `{code,message}`; do not assume validation/auth `detail` has that shape.
+A service failure may leave the caller unsure whether a commit succeeded: retry the
+same subject and original plan to read the saved fact. A disabled/missing first plan
+creates no fact. Re-enable the same existing ID to recover a disabled plan; a wrong ID
+requires configuration investigation, not a second entitlement identity.
+
+See [non-production HTTP fixture and handoff](default-plans-integration.md) and
+[migration instructions](deployment.md#default-plans-unreleased). No release or
+production deployment is implied by the candidate documentation.

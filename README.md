@@ -9,6 +9,10 @@ TekesQuotaKit is a small FastAPI + SQLAlchemy service that acts as a shared enti
 
 ## Core concepts
 
+New user default plans group multiple ordered Level packages and initialize each subject
+once, without replacing paid entitlements. See the [default-plan API](docs/api.md#default-plans-and-first-initialization-unreleased)
+and [non-production integration guide](docs/default-plans-integration.md) (unreleased).
+
 | Concept | Meaning |
 | --- | --- |
 | **Service** | Something a backend performs for a user, identified by `service_code` (and an integer `service_id`). `atomic` or `composite`; `instant` or `durable`. |

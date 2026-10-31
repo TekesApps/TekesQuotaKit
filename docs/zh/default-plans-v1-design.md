@@ -2,18 +2,24 @@
 
 日期：2026-10-31。范围：仅 TekesQuotaKit；SKZY admin/backend 由其他会话负责。
 最终核对基线：`d03b7b7`（main，包元数据版本 `0.16.2`；不据此断言已发布）。
-初始本地基线 `968577d / 0.13.3` 已在核对中更新。本批仅文档和合同核对，未实现、未发布、未部署。
+初始本地基线 `968577d / 0.13.3` 已在核对中更新。首批为文档核对；现已进入合同冻结后的实现，未发布、未部署。
 
 ## 结论与状态
 
+实现候选现已加入：两个消费端点、独立角色/provision、方案管理页、不可变修订与发放快照、
+同事务追加发放和首次事实，以及四张表的 MySQL/SQLite 迁移。尚未发布或部署。
+准确消费合同以 [API](../api.md#default-plans-and-first-initialization-unreleased) 为准，
+复现和 SKZY 交接见 [联调说明](../default-plans-integration.md)。
+
 用户提供的 v1 职责、URL、请求/成功响应和首次发放幂等语义**可实现，予以确认并保存**。
-这不表示当前基线已支持这些接口，也不表示下文待确认补充已成为消费方合同。
+这不表示基线已支持这些接口。下文 A–D 经 SKZY 消费会话核对接受，于 2026-10-31 冻结。
 现有代码不能直接拼接成满足 v1 的实现：需要独立初始化事实、同事务追加发放、
 独立授权和实际参与计算的权益快照。不得将现有整表保存包接口当作赠送接口。
 
-合同冻结前需确认四项最小补充：授权角色、包语义/有效期、分页和错误映射。
-保留所有已给定字段和语义；以下建议均标记为“待确认”，不要求 SKZY 猜测适配。
-不实施存在上述争议的运行时代码。Issue 链接及本批验证见文末。
+合同已冻结：保留所有已给定字段和语义，A–D 补充正式生效。
+SKZY 对应合同 `SK-Backend/docs/contracts/quota-default-initialization-v1.md`，
+父 Issue [SK-Backend #94](https://github.com/ShuKangZhiYi/SK-Backend/issues/94)。
+双方直接协调，不跨仓修改；Issue 链接及各批验证见文末。
 
 ## 保存的共同接口合同 v1
 
@@ -115,14 +121,14 @@
 不能只添加角色常量就意外赋予所有 consumer 初始化权限。
 新增会员购买会以 `package_code=membership` 发放主会员并遮蔽之前主会员；默认赠送必须是
 独立追加包，不能借此切换或遮蔽付费会员。新 Level 的 `publication_status=test/formal`
-是另一维度；建议默认方案只引用 formal Level，方案 enabled 不代替 Level 发布状态，
-此项包配置校验也随 B 一并确认。
+是另一维度；约定默认方案只引用 formal Level，方案 enabled 不代替 Level 发布状态，
+此项包配置校验已随 B 一并确认。
 
-## 待确认的最小补充（未生效）
+## 已冻结的最小补充（2026-10-31）
 
 ### A. 授权
 
-建议沿用 Client 的凭据哈希、单 tenant、单 role 机制，新增两个独立角色：
+约定沿用 Client 的凭据哈希、单 tenant、单 role 机制，新增两个独立角色：
 `default_catalog`（仅 GET 目录）和 `default_init`（仅 POST 初始化），
 均使用无 Service 绑定的占位方式。SKZY admin/backend 分别持不同凭据。
 不扩建通用 scope/RBAC 体系，不让 consumer 或 membership 自动获得新能力。
@@ -131,15 +137,15 @@
 
 ### B. 包、快照、期限和顺序
 
-建议 v1 仅支持有序 Level 包：方案条目 `code` 为方案内稳定包模板标识（不是用户实例 ID），
+约定 v1 仅支持有序 Level 包：方案条目 `code` 为方案内稳定包模板标识（不是用户实例 ID），
 `name` 为包显示名；内部引用现有 `level_code`。不混入 legacy Service top-up。
 一次发放内 `package_ids` 为按方案顺序排列的 Assignment.id 的十进制字符串，
 消费方按不透明字符串保存；不同身份命名空间不能混用。
 
-建议每个条目明确 `validity_days`：正整数表示从实际 applied_at 起 N×24 小时，
+约定每个条目明确 `validity_days`：正整数表示从实际 applied_at 起 N×24 小时，
 null 表示永久；`level_term` 必须有期限。立即生效，term_start=applied_at，
 term_end=expires_at。保存计划时拒绝不满足规则的条目，不给消费方猜默认有效期。
-条目数建议 1–100。已付费包优先级保持不动，赠送包按方案顺序追加到列表尾；
+条目数约定 1–100。已付费包优先级保持不动，赠送包按方案顺序追加到列表尾；
 方案中的有序不意味着自动插到付费权益之前。
 
 方案发布修订复制各条目的 Level 限额（quota_code、mode/value、period/timezone）；
@@ -151,34 +157,40 @@ term_end=expires_at。保存计划时拒绝不满足规则的条目，不给消�
 
 ### C. 分页
 
-建议保留示例所有字段，增加 `limit`（默认 100，1–100）、`offset`（默认 0，≥0），
+约定保留示例所有字段，增加 `limit`（默认 100，1–100）、`offset`（默认 0，≥0），
 响应 `{items, total, limit, offset}`；按不变的创建主键升序、tenant 内过滤、包含停用方案。
 消费方累加 offset 至读完 total；不能只取第一页。方案不物理删除，修改不改变排序。
 每次响应为一次读取时的结果；跨页不承诺事务快照，并发新增可下次刷新看到。
-这项是 v1 原文要求但尚未定义的分页合同补充，不是已确认响应变更。
+此为已确认的 v1 分页合同；原 items 和条目字段不变。
 
 ### D. 参数、错误和重放顺序
 
-建议成功首次/重放均 HTTP 200，UTC 时间为 RFC3339 `Z` 格式。
-方案/初始化 ID 由服务生成；本版本建议 token_urlsafe(24)，消费方只视为字符串，
+约定成功首次/重放均 HTTP 200，UTC 时间为 RFC3339 `Z` 格式。
+方案/初始化 ID 由服务生成；本版本约定 token_urlsafe(24)，消费方只视为字符串，
 不得解析格式。`default_plan_id` 非空、≤128 字符。source 四字段均必填非空字符串，
-建议 system/event ≤64、estate_id/binding_id ≤128；拒绝未知字段（包括 tenant_id），
+约定 system/event ≤64、estate_id/binding_id ≤128；拒绝未知字段（包括 tenant_id），
 来源只审计，绝不当授权凭据。首次来源保留不覆盖。
 
-| 情况 | 建议 HTTP / 外壳 |
+| 情况 | 约定 HTTP / 外壳 |
 | --- | --- |
 | 不存在/其他 tenant 的方案 | 404 `default_plan_not_found`，code/message |
 | 首次请求停用方案 | 409 `default_plan_disabled`，code/message |
 | 无凭据或角色不符 | 沿用 401 `unauthorized`；缺 Bearer 沿用 401 detail |
 | 字段类型/长度/缺失/非法 subject | 422 detail（FastAPI 校验） |
-| 数据库或服务故障 | 新接口 503 `default_initialization_unavailable`，code/message；不暴露数据库细节 |
+| 目录数据库或服务故障 | 503 `default_catalog_unavailable`，code/message |
+| 初始化数据库或服务故障 | 503 `default_initialization_unavailable`，code/message；不暴露数据库细节 |
+
+首次成功时使用锁定的当前 revision，不使用 SKZY 绑定时的 revision；POST 不增加 revision 字段。
+首次失败（方案停用/不存在）不写初始化事实，SKZY 保留原 ID 请求 blocked，不切换方案；
+恢复同一 ID 后重试。方案不提供物理删除或自选 ID 创建；配置了不存在 ID 属于配置错误，
+Quota 不承诺可以创建指定 ID 来恢复；由双方查明并纠正错误配置，不能伪造成功。
 
 已有事实的优先级：认证与输入结构校验 → tenant+subject 查事实 → 若存在立即重放；
 之后才查请求方案是否存在/启用。不要求 malformed 请求绕过校验，也不允许撤销的凭据重放。
 合法结构下改传另一个不存在/停用方案也重放首次事实，不覆盖原来源和时间。
 服务故障响应是否已提交可能不确定；调用方重试同一 subject，不能用换 binding_id 补领。
 
-## 拟实施设计（合同补充确认后）
+## 实施设计
 
 1. 管理端新增默认方案页及 tenant 范围 CRUD/启停接口；ID 创建后不可编辑，不物理删除。
    名称、内容、启停修改递增 revision，修订保存完整有序条目/额度快照；
@@ -221,7 +233,7 @@ SQLite 升级办法和 API 文档。create_all 只适合创建缺表，不能当
 现有 MySQL 测试只在 `TEKES_QUOTA_TEST_DATABASE_URL` 指向可丢弃的
 `tekes_quota_test_*` 数据库时运行。跳过不是通过，现有测试也不证明新合同成立。
 
-## 转交 SKZY 与本批交付记录
+## 首批核对历史与后续实现验证
 
 - SKZY 可按“保存的共同接口合同 v1”对齐职责和成功载荷；四项补充确认前不要锁定角色、
   分页或包期限细节。当前 main 包元数据 v0.16.2 无目标 API，不能进行真实发放联调。
@@ -245,3 +257,20 @@ SQLite 升级办法和 API 文档。create_all 只适合创建缺表，不能当
   单独重跑该失败测试：1 passed；其余通过项不因仅元数据刷新重复执行。
   合并检查结果为 97 项通过、5 项 MySQL 跳过；不是一次全绿运行，新功能仍未验证。
 - 本批文档提交及 PR 链接回填 #40/#41；无新功能版本、无可调用的新 API。
+
+以上为首批核对当时的状态。合同冻结后续批次的证据如下：
+
+- 连接本任务独占的 socket-only MySQL 8.0.46 后执行完整 `.venv/bin/python -m pytest -q`：
+  **174 passed，无 skip**，一条既有 Starlette/httpx 弃用警告。
+  覆盖真实 MySQL 并发不同方案竞争、失败全回滚、重启 replay、冻结额度实际扣费/退款、
+  付费包优先级和 subject 区分；SQLite 同时覆盖 HTTP 角色/参数/故障/目录分页等。
+- [MySQL 迁移证据](../validation/default-plans-mysql-migration-20261031.json)：
+  d03b7b7 旧 DDL → 预置合成付费包 → 增量迁移 → 默认初始化，原包保持且赠送追加；
+  JSON、外键、ascii_bin、DATETIME(6) 以及独立 fresh DDL 的 27 张表已检查。
+- [SKZY 首轮真实 HTTP 证据](../validation/default-plans-skzy-http-20261031.json)：
+  六组检查含完整分页/停用展示、角色隔离、多包、失败无包、跨方案 replay。
+  A/B 实际初始化时间分别为 `09:22:03.872224Z` 与 `09:22:05.314493Z`，
+  各自到期均准确晚 604800 秒，重试不续期。没有使用 clock mock 证明个人期限。
+- Ruff 和 diff whitespace 检查通过。管理端 build/e2e 与 SKZY 全链路结果继续回填 Issue。
+- 未验证/未执行：生产 VIP Level 的真实标识/发布状态、三个真实小区配置、真实用户发放、
+  生产迁移/部署和物理客户端验收。不能把合成结果称为生产生效。

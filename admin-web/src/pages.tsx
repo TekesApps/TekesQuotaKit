@@ -370,7 +370,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     try {
       await download(`/clients/${enc(id)}/provision`, {
         tenant_id: tenant, role: row.role, rotate: true, base_url: DEFAULT_BASE_URL,
-        service_code: row.role === 'membership' ? '' : row.service_code,
+        service_code: ['membership', 'default_catalog', 'default_init'].includes(String(row.role)) ? '' : row.service_code,
       }, `${id}-quotakit.md`);
       onChanged(`已轮换 ${id} 的密钥并下载新的接入说明`);
     } catch (e) { setError(e instanceof Error ? e.message : '轮换失败'); }
@@ -389,7 +389,7 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
   const services = useCodes('tq_services', 'service_code', tenant, revision);
   const columns: Column[] = [
     column('client_id'),
-    column('service_code', { render: row => row.role === 'membership' ? <span className="muted">不绑定（会员同步）</span> : <span className="code">{text(row.service_code)}</span> }),
+    column('service_code', { render: row => ['membership', 'default_catalog', 'default_init'].includes(String(row.role)) ? <span className="muted">不绑定（{text(row.role)}）</span> : <span className="code">{text(row.service_code)}</span> }),
     column('role'),
     { key: '_actions', title: '操作', render: row => <Actions items={[
       { label: '轮换密钥', danger: true, action: () => void rotate(row) },
@@ -397,14 +397,15 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     ]} /> },
   ];
   const membership = form?.role === 'membership';
+  const defaultPlanRole = form?.role === 'default_catalog' || form?.role === 'default_init';
   const definitionField: Field = definition
     ? { name: 'subject_id_definition', label: '用户 ID 定义', locked: true, hint: '已在业务系统设定，所有凭据共用。要修改请到“用户与接入 → 业务系统”' }
     : { name: 'subject_id_definition', label: '用户 ID 定义', required: true, placeholder: '例如：user_table.id 或 union_id', hint: '本业务系统还没有设定。用户 ID 可以是整数或字符串 ID（如 union_id、openid），允许字母、数字和 . _ : @ -，最长 128 位，区分大小写；同一个人必须始终使用同一个 ID，中途换 ID 体系会被当作另一个用户。之后只能在“业务系统”页修改' };
   // Two forms: a member-sync credential has a fixed role and no Service; a Service credential
   // picks its Service and one of the Service roles.
-  const fields: Field[] = membership ? [
+  const fields: Field[] = membership || defaultPlanRole ? [
     { name: 'client_id', label: 'Client ID', required: true, key: true, placeholder: 'shukang-members' },
-    { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步')], hint: '只能维护会员名单，不调用服务' },
+    { name: 'role', label: '角色', locked: true, options: [option('membership', '会员同步'), option('default_catalog', '默认方案目录只读'), option('default_init', '默认初始化发放')], hint: defaultPlanRole ? '分别签发目录只读与初始化写入凭据，两个角色不可互换' : '只能维护会员名单，不调用服务' },
     definitionField,
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ] : [
@@ -415,19 +416,123 @@ export function ClientsPage({ tenant, revision, onChanged }: PageProps) {
     { name: 'base_url', label: 'API 地址', required: true, hint: '业务后台和配额服务在同一台生产服务器上时填 http://127.0.0.1:9460。这是那台服务器的本机地址，不是开发人员电脑的 127.0.0.1，接入说明里会写明' },
   ];
   return <section className="panel">
-    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据：每个服务签发一份，角色一般选“准入+执行”。会员同步凭据：每个业务系统签发一份，只用来维护会员名单，不绑定服务。签发后浏览器会下载一份接入说明，内含明文密钥。这是唯一一次能拿到明文，请妥善保存，不要提交到 Git。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
+    <div className="panel-head"><div><h2>客户端凭据</h2><p className="muted">服务凭据用于准入和执行；会员同步凭据维护会员名单；默认方案凭据分为目录只读和初始化发放两种独立角色。签发后会下载一次性接入说明，内含明文密钥，请妥善保存并仅存于服务端。</p></div><div className="toolbar"><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'membership', base_url: DEFAULT_BASE_URL })}>签发会员同步凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_catalog', base_url: DEFAULT_BASE_URL })}>签发目录只读凭据</button><button disabled={!definitionLoaded || !!definitionError} className="secondary" onClick={() => open({ role: 'default_init', base_url: DEFAULT_BASE_URL })}>签发初始化凭据</button><button disabled={!definitionLoaded || !!definitionError} onClick={() => open({ role: 'consumer', base_url: DEFAULT_BASE_URL })}>签发服务凭据</button></div></div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {definitionError && <div className="error-box" role="alert">{definitionError}，请刷新后重试</div>}
     <SearchBar keys={['client_id', 'service_code']} labels={columnNames} value={filters} onSearch={next => { setFilters(next); setOffset(0); }} />
     <Table columns={columns} data={result.rows} loading={result.loading} error={result.error} />
     <Pager offset={offset} total={result.total} onChange={setOffset} />
-    {form && <Editor key={membership ? 'membership' : 'service'} title={membership ? '签发会员同步凭据' : '签发服务凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={false}
+    {form && <Editor key={String(form.role)} title={membership ? '签发会员同步凭据' : defaultPlanRole ? (form.role === 'default_catalog' ? '签发目录只读凭据' : '签发初始化凭据') : '签发服务凭据'} submitLabel="生成并下载" fields={fields} initial={form} editing={false}
       onSave={async d => {
         const id = required(d.client_id, 'Client ID');
-        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: d.service_code, role: d.role, base_url: d.base_url, rotate: false, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
+        await download(`/clients/${enc(id)}/provision`, { tenant_id: tenant, service_code: ['membership', 'default_catalog', 'default_init'].includes(String(d.role)) ? '' : d.service_code, role: d.role, base_url: d.base_url, rotate: false, subject_id_definition: d.subject_id_definition }, `${id}-quotakit.md`);
         onChanged(`已为 ${id} 生成密钥并下载接入说明`);
       }}
       onClose={() => setForm(null)} />}
+  </section>;
+}
+
+type DefaultPlanPackage = { code: string; name: string; level_code: string; validity_days: number | null };
+type DefaultPlan = { id: string; name: string; enabled: boolean; revision: number; packages: DefaultPlanPackage[] };
+type DefaultPlanPage = { items: DefaultPlan[]; total: number; limit: number; offset: number };
+
+function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
+  tenant: string; plan: DefaultPlan | null; levels: Option[]; onClose: () => void; onSaved: () => void;
+}) {
+  const [name, setName] = useState(plan?.name || ''), [enabled, setEnabled] = useState(plan?.enabled ?? true);
+  const [packages, setPackages] = useState<DefaultPlanPackage[]>(() => plan?.packages.map(p => ({ ...p })) ?? [{ code: '', name: '', level_code: '', validity_days: null }]);
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  function update(index: number, patch: Partial<DefaultPlanPackage>) {
+    setPackages(rows => rows.map((item, i) => i === index ? { ...item, ...patch } : item));
+  }
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const body = { name: name.trim(), enabled, packages: packages.map(p => ({ ...p, code: p.code.trim(), name: p.name.trim(), validity_days: p.validity_days === null ? null : Number(p.validity_days) })) };
+      if (plan) await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}`, 'PUT', { ...body, revision: plan.revision });
+      else await api(`/tenants/${enc(tenant)}/default-plans`, 'POST', body);
+      onSaved(); onClose();
+    } catch (e) { setError(e instanceof Error ? e.message : '保存默认方案失败'); }
+    finally { setBusy(false); }
+  }
+  return <Drawer title={plan ? '编辑默认方案' : '新增默认方案'} onClose={() => { if (!busy) onClose(); }}>
+    <form onSubmit={save}>
+      {error && <div className="error-box" role="alert">{error}</div>}
+      <div className="grid two">
+        <label>方案名称 *<input value={name} required maxLength={100} onChange={e => setName(e.target.value)} /></label>
+        <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} onChange={e => setEnabled(e.target.checked)} /></label>
+      </div>
+      <p className="muted">ID 创建后固定。每个包使用正式 Level；额度在方案保存时固定到修订并用于发放后的实际计算。</p>
+      <div className="table-wrap"><table><thead><tr><th>顺序</th><th>包标识</th><th>包名称</th><th>正式 Level</th><th>有效天数</th><th>操作</th></tr></thead><tbody>
+        {packages.map((item, index) => <tr key={index}>
+          <td>{index + 1}</td>
+          <td><input aria-label={`包 ${index + 1} 标识`} required maxLength={64} value={item.code} onChange={e => update(index, { code: e.target.value })} /></td>
+          <td><input aria-label={`包 ${index + 1} 名称`} required maxLength={100} value={item.name} onChange={e => update(index, { name: e.target.value })} /></td>
+          <td><Select aria-label={`包 ${index + 1} Level`} showSearch optionFilterProp="label" options={levels} placeholder="选择正式 Level" value={item.level_code || undefined} onChange={value => update(index, { level_code: value })} /></td>
+          <td><input aria-label={`包 ${index + 1} 有效天数`} type="number" min={1} max={3660} placeholder="永久" value={item.validity_days ?? ''} onChange={e => update(index, { validity_days: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+          <td><div className="toolbar"><button type="button" className="secondary" disabled={index === 0} onClick={() => setPackages(rows => { const next = [...rows]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>上移</button><button type="button" className="secondary" disabled={index === packages.length - 1} onClick={() => setPackages(rows => { const next = [...rows]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })}>下移</button><button type="button" className="secondary" disabled={packages.length <= 1} onClick={() => setPackages(rows => rows.filter((_, i) => i !== index))}>移除</button></div></td>
+        </tr>)}
+      </tbody></table></div>
+      <button type="button" className="secondary" disabled={packages.length >= 100} onClick={() => setPackages(rows => [...rows, { code: '', name: '', level_code: '', validity_days: null }])}>添加额度包</button>
+      <p className="muted">有效天数留空表示永久；期限从首次发放时间计算。启用状态和包列表修改只影响之后的新发放。</p>
+      <div className="form-actions"><button disabled={busy || !levels.length}>{busy ? '保存中…' : '保存方案'}</button><button type="button" disabled={busy} className="secondary" onClick={onClose}>取消</button></div>
+    </form>
+  </Drawer>;
+}
+
+export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
+  const [offset, setOffset] = useState(0), [data, setData] = useState<DefaultPlanPage | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const [editing, setEditing] = useState<DefaultPlan | null | undefined>(undefined);
+  const [levels, setLevels] = useState<Option[]>([]), [levelsLoading, setLevelsLoading] = useState(true), [levelsError, setLevelsError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setLevelsLoading(true); setLevelsError('');
+    (async () => {
+      const rows: Row[] = [];
+      let pageOffset = 0, total = 0;
+      do {
+        const page = await api<{ rows: Row[]; total: number }>(`/tables/tq_levels?tenant=${enc(tenant)}&limit=200&offset=${pageOffset}`);
+        rows.push(...page.rows);
+        total = page.total;
+        if (!page.rows.length && pageOffset < total) throw new Error('正式 Level 分页读取不完整');
+        pageOffset += page.rows.length;
+      } while (pageOffset < total);
+      if (active) setLevels(rows.filter(row => row.publication_status === 'formal').map(row => ({ value: String(row.level_code), label: String(row.level_code) })));
+    })().catch(e => { if (active) { setLevels([]); setLevelsError(e instanceof Error ? e.message : '正式 Level 读取失败'); } })
+      .finally(() => { if (active) setLevelsLoading(false); });
+    return () => { active = false; };
+  }, [tenant, revision]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true); setError('');
+    api<DefaultPlanPage>(`/tenants/${enc(tenant)}/default-plans?limit=100&offset=${offset}`)
+      .then(result => { if (active) setData(result); })
+      .catch(e => { if (active) { setData(null); setError(e instanceof Error ? e.message : '默认方案读取失败'); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [tenant, revision, offset]);
+  const plans = data?.items ?? [];
+  async function toggle(plan: DefaultPlan) {
+    setError('');
+    try {
+      await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}`, 'PUT', { name: plan.name, enabled: !plan.enabled, revision: plan.revision, packages: plan.packages });
+      onChanged(plan.enabled ? '默认方案已停用' : '默认方案已启用');
+    } catch (e) { setError(e instanceof Error ? e.message : '更新方案状态失败'); }
+  }
+  return <section className="panel">
+    <div className="panel-head"><div><h2>默认方案</h2><p className="muted">默认方案包含多个按顺序发放的正式 Level 包。停用方案保留在目录中，供小区配置显示；已发权益不随方案编辑变化。</p></div><button disabled={!levels.length || levelsLoading || !!levelsError} onClick={() => setEditing(null)}>新增方案</button></div>
+    {levelsError && <div className="error-box" role="alert">正式 Level 加载失败：{levelsError}</div>}
+    {!levels.length && !levelsLoading && !levelsError && <p className="muted">请先在 Level 等级中建立正式档位，并配置对应等级额度。</p>}
+    {error && <div className="error-box" role="alert">{error}</div>}
+    <div className="table-wrap"><table><thead><tr><th>名称</th><th>方案 ID</th><th>状态</th><th>修订</th><th>有序 quota 包</th><th>操作</th></tr></thead><tbody>
+      {loading || error || !plans.length ? <tr><td colSpan={6} className={error ? 'error' : 'muted'}>{loading ? '正在加载…' : error || '暂无默认方案'}</td></tr> : plans.map(plan => <tr key={plan.id}>
+        <td>{plan.name}</td><td><span className="code">{plan.id}</span></td><td><Status value={plan.enabled ? 'enabled' : 'disabled'} /></td><td>{plan.revision}</td>
+        <td>{plan.packages.map((item, i) => <div key={item.code}>{i + 1}. {item.name} · {item.level_code} · {item.validity_days === null ? '永久' : `${item.validity_days} 天`}</div>)}</td>
+        <td><div className="toolbar"><button className="secondary" onClick={() => setEditing(plan)}>编辑</button><button className="secondary" onClick={() => void toggle(plan)}>{plan.enabled ? '停用' : '启用'}</button></div></td>
+      </tr>)}
+    </tbody></table></div>
+    {(data?.total ?? 0) > 100 && <div className="pagination toolbar"><button className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>上一页</button><span className="muted">第 {Math.floor(offset / 100) + 1} / {Math.ceil((data?.total ?? 0) / 100)} 页 · 共 {data?.total} 条</span><button className="secondary" disabled={offset + 100 >= (data?.total ?? 0)} onClick={() => setOffset(offset + 100)}>下一页</button></div>}
+    {editing !== undefined && <DefaultPlanEditor key={editing?.id ?? 'new'} tenant={tenant} plan={editing} levels={levels} onClose={() => setEditing(undefined)} onSaved={() => onChanged('默认方案已保存')} />}
   </section>;
 }
 

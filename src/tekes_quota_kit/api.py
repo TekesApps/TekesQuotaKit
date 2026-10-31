@@ -3,12 +3,20 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 
 from . import __version__
 from .admin import create_admin_router
 from .admin_auth import AdminAccounts, require_admin_factory
-from .core import MEMBERSHIP_ROLE, QuotaError, QuotaKit, SubjectId
+from .core import (
+    DEFAULT_CATALOG_ROLE,
+    DEFAULT_INIT_ROLE,
+    MEMBERSHIP_ROLE,
+    QuotaError,
+    QuotaKit,
+    SubjectId,
+)
 from .models import Client
 
 
@@ -17,7 +25,40 @@ class ClientConfig(BaseModel):
     key: str = Field(min_length=32)
     tenant_id: str = Field(min_length=1, max_length=64)
     service_code: str = Field(min_length=1, max_length=64)
-    role: Literal["issuer", "provider", "consumer"]
+    role: Literal["issuer", "provider", "consumer", "membership", "default_catalog", "default_init"]
+
+
+class DefaultPlanPackageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=100)
+    level_code: str = Field(min_length=1, max_length=64)
+    validity_days: int | None = Field(ge=1, le=3660, strict=True)
+
+
+class DefaultPlanConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+    enabled: bool = Field(strict=True)
+    packages: list[DefaultPlanPackageConfig] = Field(min_length=1, max_length=100)
+
+
+class DefaultPlanUpdate(DefaultPlanConfig):
+    revision: int = Field(ge=1, strict=True)
+
+
+class DefaultInitializationSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    system: str = Field(min_length=1, max_length=64)
+    event: str = Field(min_length=1, max_length=64)
+    estate_id: str = Field(min_length=1, max_length=128)
+    binding_id: str = Field(min_length=1, max_length=128)
+
+
+class DefaultInitializationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    default_plan_id: str = Field(min_length=1, max_length=128)
+    source: DefaultInitializationSource
 
 
 class DescriptionConfig(BaseModel):
@@ -181,6 +222,81 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
 
     def provider(key: Annotated[str, Depends(bearer)]) -> Client:
         return kit.client(key, "provider")
+
+    def default_catalog(key: Annotated[str, Depends(bearer)]) -> Client:
+        try:
+            return kit.client(key, DEFAULT_CATALOG_ROLE)
+        except SQLAlchemyError as exc:
+            raise QuotaError(
+                "default_catalog_unavailable", "Default catalog unavailable", 503
+            ) from exc
+
+    def default_initializer(key: Annotated[str, Depends(bearer)]) -> Client:
+        try:
+            return kit.client(key, DEFAULT_INIT_ROLE)
+        except SQLAlchemyError as exc:
+            raise QuotaError(
+                "default_initialization_unavailable", "Default initialization unavailable", 503
+            ) from exc
+
+    @app.get("/v1/default-plans")
+    def default_plans(
+        caller: Annotated[Client, Depends(default_catalog)],
+        limit: int = Query(default=100, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> JSONResponse:
+        try:
+            result = kit.list_default_plans(caller.tenant_id, limit, offset, summary=True)
+        except SQLAlchemyError as exc:
+            raise QuotaError(
+                "default_catalog_unavailable", "Default catalog unavailable", 503
+            ) from exc
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/v1/subjects/{subject_id}/default-initialization")
+    def initialize_defaults(
+        subject_id: SubjectId,
+        payload: DefaultInitializationRequest,
+        caller: Annotated[Client, Depends(default_initializer)],
+    ) -> JSONResponse:
+        try:
+            result = kit.initialize_defaults(
+                caller.tenant_id, subject_id, payload.default_plan_id, payload.source.model_dump()
+            )
+        except SQLAlchemyError as exc:
+            raise QuotaError(
+                "default_initialization_unavailable", "Default initialization unavailable", 503
+            ) from exc
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.get("/v1/admin/tenants/{tenant}/default-plans", dependencies=[Depends(admin)])
+    def admin_default_plans(
+        tenant: str,
+        limit: int = Query(default=100, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict:
+        return kit.list_default_plans(tenant, limit, offset)
+
+    @app.post("/v1/admin/tenants/{tenant}/default-plans", dependencies=[Depends(admin)])
+    def create_default_plan(tenant: str, payload: DefaultPlanConfig) -> dict:
+        return kit.create_default_plan(
+            tenant, payload.name, payload.enabled, [item.model_dump() for item in payload.packages]
+        )
+
+    @app.get("/v1/admin/tenants/{tenant}/default-plans/{plan_id}", dependencies=[Depends(admin)])
+    def get_default_plan(tenant: str, plan_id: str) -> dict:
+        return kit.get_default_plan(tenant, plan_id)
+
+    @app.put("/v1/admin/tenants/{tenant}/default-plans/{plan_id}", dependencies=[Depends(admin)])
+    def update_default_plan(tenant: str, plan_id: str, payload: DefaultPlanUpdate) -> dict:
+        return kit.update_default_plan(
+            tenant,
+            plan_id,
+            payload.name,
+            payload.enabled,
+            [item.model_dump() for item in payload.packages],
+            payload.revision,
+        )
 
     @app.get("/health")
     def health() -> dict:

@@ -15,6 +15,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from .default_plans import DefaultPlans
 from .level_packages import LevelPackages
 from .membership_purchases import MembershipPurchases
 from .models import (
@@ -87,9 +88,12 @@ SubjectId = Annotated[str, BeforeValidator(_subject_input)]
 
 
 MEMBERSHIP_ROLE = "membership"
+DEFAULT_CATALOG_ROLE = "default_catalog"
+DEFAULT_INIT_ROLE = "default_init"
+TENANT_ROLES = {MEMBERSHIP_ROLE, DEFAULT_CATALOG_ROLE, DEFAULT_INIT_ROLE}
 # Membership clients are not bound to a Service; tq_clients.service_code stores this placeholder.
 MEMBERSHIP_SERVICE = "*"
-CLIENT_ROLES = {"issuer", "provider", "consumer", MEMBERSHIP_ROLE}
+CLIENT_ROLES = {"issuer", "provider", "consumer", *TENANT_ROLES}
 
 
 def utc_now() -> datetime:
@@ -144,7 +148,7 @@ def _period(
     return start.astimezone(UTC).replace(tzinfo=None), end.astimezone(UTC).replace(tzinfo=None)
 
 
-class QuotaKit(LevelPackages, MembershipPurchases):
+class QuotaKit(LevelPackages, MembershipPurchases, DefaultPlans):
     """MySQL-backed authority. Database URL points at the consumer's existing schema."""
 
     def __init__(self, database_url: str, token_secret: str) -> None:
@@ -182,7 +186,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
 
     def client(self, key: str, role: str) -> Client:
         # `consumer` covers issuer and provider endpoints only; member sync needs its own role.
-        allowed = {role} if role == MEMBERSHIP_ROLE else {role, "consumer"}
+        allowed = {role} if role in TENANT_ROLES else {role, "consumer"}
         with self.sessions() as db:
             client = db.scalar(select(Client).where(Client.key_hash == self.key_hash(key)))
             _require(
@@ -206,7 +210,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
         self, client_id: str, key: str, tenant_id: str, service_code: str, role: str
     ) -> None:
         _require(role in CLIENT_ROLES, "invalid_role", "Invalid client role", 400)
-        if role == MEMBERSHIP_ROLE:
+        if role in TENANT_ROLES:
             service_code = MEMBERSHIP_SERVICE
         _require(
             len(key) >= 32, "weak_client_key", "Client key must be at least 32 characters", 400
@@ -240,7 +244,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
         _require(role in CLIENT_ROLES, "invalid_role", "Invalid client role", 400)
         key = secrets.token_urlsafe(48)
         with self.sessions.begin() as db:
-            if role == MEMBERSHIP_ROLE:
+            if role in TENANT_ROLES:
                 service, service_code = None, MEMBERSHIP_SERVICE
             else:
                 service = db.scalar(
@@ -1105,13 +1109,7 @@ class QuotaKit(LevelPackages, MembershipPurchases):
         assignments = QuotaKit._assignments(db, tenant, subject, now, lock=lock)
         _require(bool(assignments), "no_level", "No active Level")
         for assignment in assignments:
-            limit = db.scalar(
-                select(Limit).where(
-                    Limit.tenant_id == tenant,
-                    Limit.level_code == assignment.level_code,
-                    Limit.quota_code == quota.quota_code,
-                )
-            )
+            limit = QuotaKit._assignment_limit(db, assignment, quota.quota_code)
             if limit is not None:
                 start, end = _period(now, limit.period_kind, limit.timezone, assignment)
                 return quota, limit, start, end
@@ -1948,16 +1946,11 @@ class QuotaKit(LevelPackages, MembershipPurchases):
             assignment = self._assignment(db, tenant, subject, now, required=False)
             if assignment is None:
                 return {"subject_id": subject, "member": None, "quotas": []}
-            limits = db.scalars(
-                select(Limit)
-                .where(
-                    Limit.tenant_id == tenant,
-                    Limit.level_code.in_(
-                        [a.level_code for a in self._assignments(db, tenant, subject, now)]
-                    ),
-                )
-                .order_by(Limit.quota_code)
-            ).all()
+            limits = [
+                rule
+                for active in self._assignments(db, tenant, subject, now)
+                for rule in self._assignment_limits(db, active)
+            ]
             quotas = []
             seen = set()
             for limit in limits:
