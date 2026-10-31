@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-01
+
+### Changed
+- Choose permanent or day-based validity explicitly in entitlement plans. Day-based validity requires a positive integer; an empty field no longer implicitly selects permanent validity.
+
 ## [0.18.1] - 2026-11-01
 
 ### Changed
@@ -417,7 +422,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.2...HEAD
+[0.18.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.0...v0.17.1
