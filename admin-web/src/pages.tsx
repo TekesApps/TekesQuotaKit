@@ -439,19 +439,25 @@ type DefaultPlanPackage = { code: string; name: string; level_code: string; vali
 type DefaultPlan = { id: string; name: string; enabled: boolean; revision: number; packages: DefaultPlanPackage[] };
 type DefaultPlanPage = { items: DefaultPlan[]; total: number; limit: number; offset: number };
 
+// An empty string is an unfinished day-based choice; null explicitly means permanent.
+type EditableDefaultPlanPackage = Omit<DefaultPlanPackage, 'validity_days'> & { validity_days: number | null | '' };
+
 function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
   tenant: string; plan: DefaultPlan | null; levels: Option[]; onClose: () => void; onSaved: () => void;
 }) {
   const [name, setName] = useState(plan?.name || ''), [enabled, setEnabled] = useState(plan?.enabled ?? true);
-  const [packages, setPackages] = useState<DefaultPlanPackage[]>(() => plan?.packages.map(p => ({ ...p })) ?? []);
+  const [packages, setPackages] = useState<EditableDefaultPlanPackage[]>(() => plan?.packages.map(p => ({ ...p })) ?? []);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   function move(index: number, delta: number) {
     setPackages(rows => { const next = [...rows]; [next[index], next[index + delta]] = [next[index + delta], next[index]]; return next; });
   }
+  function updateDuration(index: number, validity_days: EditableDefaultPlanPackage['validity_days']) {
+    setPackages(rows => rows.map((row, i) => i === index ? { ...row, validity_days } : row));
+  }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const body = { name: name.trim(), enabled, packages };
+      const body = { name: name.trim(), enabled, packages: packages.map(p => ({ ...p, validity_days: p.validity_days === null ? null : Number(p.validity_days) })) };
       if (plan) await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}`, 'PUT', { ...body, revision: plan.revision });
       else await api(`/tenants/${enc(tenant)}/default-plans`, 'POST', body);
       onSaved(); onClose();
@@ -467,10 +473,13 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
           <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} disabled={busy} onChange={e => setEnabled(e.target.checked)} /></label>
         </div>
         <div className="plan-memberships">
-          <div><h3>会员权益</h3><p className="muted">从已有会员档位选择，按以下顺序发放。有效天数留空表示永久，期限从首次发放时间计算。</p></div>
+          <div><h3>会员权益</h3><p className="muted">从已有会员档位选择，按以下顺序发放。选择永久有效，或按天设置有效期；期限从首次发放时间计算。</p></div>
           {packages.map((item, index) => <section className="plan-entitlement" key={item.code} aria-label={`会员权益 ${index + 1}`}>
             <div className="plan-entitlement-name"><strong>{index + 1}. {item.name}</strong><span className="muted">{levels.find(level => level.value === item.level_code)?.label || item.level_code}</span></div>
-            <label>有效天数<input aria-label={`会员权益 ${index + 1} 有效天数`} type="number" min={1} max={3660} placeholder="永久" disabled={busy} value={item.validity_days ?? ''} onChange={e => setPackages(rows => rows.map((row, i) => i === index ? { ...row, validity_days: e.target.value === '' ? null : Number(e.target.value) } : row))} /></label>
+            <div className="plan-duration">
+              <label>有效期<select aria-label={`会员权益 ${index + 1} 有效期`} disabled={busy} value={item.validity_days === null ? 'permanent' : 'days'} onChange={e => updateDuration(index, e.target.value === 'permanent' ? null : '')}><option value="permanent">永久有效</option><option value="days">按天设置</option></select></label>
+              {item.validity_days !== null && <label>有效天数<input aria-label={`会员权益 ${index + 1} 有效天数`} type="number" required min={1} max={3660} step={1} disabled={busy} value={item.validity_days} onChange={e => updateDuration(index, e.target.value === '' ? '' : Number(e.target.value))} /></label>}
+            </div>
             <div className="toolbar">
               <button type="button" className="secondary" disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>
               <button type="button" className="secondary" disabled={busy || index === packages.length - 1} onClick={() => move(index, 1)}>下移</button>

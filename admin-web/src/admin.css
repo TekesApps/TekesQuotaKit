@@ -388,6 +388,7 @@
 .plan-memberships {display:grid;gap:16px;}
 .plan-memberships h3,.plan-memberships p {margin:0;}
 .plan-entitlement {display:grid;grid-template-columns:minmax(0,1fr) 160px auto;align-items:center;gap:24px;padding:20px;border:1px solid var(--line);border-radius:12px;}
+.plan-duration {display:grid;gap:10px;}
 .plan-entitlement-name {display:grid;gap:6px;min-width:0;overflow-wrap:anywhere;}
 .plan-entitlement .toolbar {flex-wrap:wrap;gap:8px;}
 .plan-editor .form-actions {padding-top:16px;border-top:1px solid var(--line);flex-shrink:0;}

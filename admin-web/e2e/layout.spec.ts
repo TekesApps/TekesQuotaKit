@@ -548,9 +548,29 @@ test('creates and edits an entitlement plan while preserving generated package i
   };
   await addLevel('basic');
   await expect(dialog.getByLabel('会员权益 1', { exact: true })).toContainText('basic');
-  await expect(dialog.getByLabel('会员权益 1', { exact: true }).getByRole('combobox')).toHaveCount(0);
-  await dialog.getByLabel('会员权益 1 有效天数', { exact: true }).fill('30');
+  await expect(dialog.getByLabel('会员权益 1', { exact: true }).getByRole('combobox')).toHaveCount(1);
+  const firstDuration = dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true });
+  await expect(firstDuration).toHaveValue('permanent');
+  await expect(dialog.getByLabel('会员权益 1 有效天数', { exact: true })).toHaveCount(0);
+  await firstDuration.selectOption('days');
+  const firstDays = dialog.getByLabel('会员权益 1 有效天数', { exact: true });
+  await expect(firstDays).toHaveValue('');
+  await expect(firstDays).toHaveAttribute('required', '');
+  let invalidCreates = 0;
+  const countInvalidCreates = (request: import('@playwright/test').Request) => {
+    if (request.method() === 'POST' && request.url().endsWith('/default-plans')) invalidCreates++;
+  };
+  page.on('request', countInvalidCreates);
+  for (const invalid of ['', '0', '3661', '1.5']) {
+    await firstDays.fill(invalid);
+    await dialog.getByRole('button', { name: '保存方案', exact: true }).click();
+    expect(await firstDays.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+  }
+  expect(invalidCreates).toBe(0);
+  page.off('request', countInvalidCreates);
+  await firstDays.fill('30');
   await addLevel('basic');
+  await dialog.getByRole('combobox', { name: '会员权益 2 有效期', exact: true }).selectOption('days');
   await dialog.getByLabel('会员权益 2 有效天数', { exact: true }).fill('7');
   await addLevel('usage-plan');
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(3);
@@ -565,6 +585,7 @@ test('creates and edits an entitlement plan while preserving generated package i
   const createdPackages = createRequest.postDataJSON().packages as Array<{ code: string; name: string; level_code: string; validity_days: number | null }>;
   expect(createdPackages.map(item => item.level_code)).toEqual(['basic', 'basic', 'usage-plan']);
   expect(createdPackages.map(item => item.name)).toEqual(['basic', 'basic', 'usage-plan']);
+  expect(createdPackages.map(item => item.validity_days)).toEqual([30, 7, null]);
   expect(createdPackages.map(item => item.code).every(code => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(code))).toBe(true);
   expect(new Set(createdPackages.map(item => item.code)).size).toBe(3);
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -635,6 +656,14 @@ test('creates and edits an entitlement plan while preserving generated package i
   dialog = page.getByRole('dialog', { name: '编辑权益方案', exact: true });
   await expect(dialog.getByLabel('会员权益 1', { exact: true })).toContainText('Legacy VIP custom name');
   await expect(dialog.getByLabel('会员权益 2', { exact: true })).toContainText('Legacy Star custom name');
+  await expect(dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true })).toHaveValue('days');
+  await expect(dialog.getByLabel('会员权益 1 有效天数', { exact: true })).toHaveValue('7');
+  const starDuration = dialog.getByRole('combobox', { name: '会员权益 2 有效期', exact: true });
+  await expect(starDuration).toHaveValue('permanent');
+  await starDuration.selectOption('days');
+  await dialog.getByLabel('会员权益 2 有效天数', { exact: true }).fill('5');
+  await starDuration.selectOption('permanent');
+  await expect(dialog.getByLabel('会员权益 2 有效天数', { exact: true })).toHaveCount(0);
   await dialog.getByLabel('会员权益 1', { exact: true }).getByRole('button', { name: '下移', exact: true }).click();
   await dialog.getByRole('button', { name: '保存方案', exact: true }).click();
   const legacyList = await page.request.get(listUrl, { headers: admin }).then(response => response.json());
@@ -662,6 +691,8 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
     await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: code }).first().click();
   }
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(2);
+  await dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true }).selectOption('days');
+  await dialog.getByLabel('会员权益 1 有效天数', { exact: true }).fill('7');
   // Wait for the desktop-width dropdown's leave animation before resizing.
   await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
   const checkSize = async (width: number) => {
