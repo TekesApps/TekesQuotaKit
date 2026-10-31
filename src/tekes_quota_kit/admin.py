@@ -248,7 +248,9 @@ class ProvisionRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64)
     # Ignored for the `membership` role, which is not bound to a Service.
     service_code: str = Field(default="", max_length=64)
-    role: str = Field(pattern=r"^(issuer|provider|consumer|membership)$")
+    role: str = Field(
+        pattern=r"^(issuer|provider|consumer|membership|default_catalog|default_init)$"
+    )
     base_url: str = Field(min_length=8, max_length=512)
     rotate: bool = False
     # What `subject_id` means in this business system. Saved on the business system; required
@@ -695,6 +697,101 @@ def _membership_guide(
     return "\n".join(lines)
 
 
+def _default_plan_guide(
+    client_id: str,
+    key: str,
+    tenant: str,
+    base_url: str,
+    role: str,
+    subject_id_definition: str,
+) -> str:
+    """One-time server credential contract for default-plan consumer endpoints."""
+    read_only = role == "default_catalog"
+    endpoint = (
+        "GET /v1/default-plans?limit=100&offset=0"
+        if read_only
+        else "POST /v1/subjects/{subject_id}/default-initialization"
+    )
+    capability = (
+        "read the tenant default-plan catalog" if read_only else "initialize a subject once"
+    )
+    lines = [
+        "# TekesQuotaKit default plan client",
+        "",
+        f"Client ID: `{client_id}`",
+        f"Tenant: `{tenant}` (bound to this credential; do not send a tenant in requests)",
+        f"Role: `{role}`",
+        f"API base URL: `{base_url}`",
+        f"Client key (server-side secret): `{key}`",
+        "",
+        f"This credential may only {capability}. It is not a member-sync or service credential.",
+        "The key is shown only in this download and is stored hashed by TekesQuotaKit.",
+        "Keep this file private; do not commit it or expose the key to a browser.",
+        "",
+        "## Subject ID",
+        f"Use this tenant's configured subject ID: `{subject_id_definition}`.",
+        "Keep the same stable ID already used throughout this tenant. It is 1–128 ASCII letters,",
+        "digits, `. _ : @ -`; pure numeric values must be positive.",
+        "Case and leading zeroes matter.",
+        "See the shared v1 contract for",
+        "request fields, response facts, replay semantics, pagination and errors.",
+        "",
+        "## Endpoint",
+        f"`{endpoint}` with `Authorization: Bearer <client key>`.",
+        "",
+    ]
+    if read_only:
+        lines.extend(
+            [
+                "Read pages with `limit=100` and offsets 0, 100, and so on through `total`.",
+                "Items include disabled plans for display; do not offer disabled plans for new",
+                "assignments.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Send backend-confirmed estate and binding IDs. QuotaKit records them for audit;",
+                "it does not verify estate ownership.",
+                "",
+                "```json",
+                "{",
+                '  "default_plan_id": "plan ID from the saved binding snapshot",',
+                '  "source": {"system": "skzy", "event": "first_estate_binding",',
+                '             "estate_id": "verified estate ID",',
+                '             "binding_id": "stable binding ID"}',
+                "}",
+                "```",
+                "A successful response is the durable initialization fact (`status: applied`, UTC",
+                "`applied_at`, ordered string `package_ids`). On retry for this subject, keep the",
+                "original plan and source. A replay returns the first fact with `replayed: true`,",
+                "even if the retry names a different plan. Report no award until success.",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Errors",
+            "",
+            "- 401 `unauthorized` or existing `detail`: missing, invalid, or wrong role.",
+            "- 404 `default_plan_not_found`: the requested plan is unknown in this tenant.",
+            "- 409 `default_plan_disabled`: retain the binding snapshot; retry after correction.",
+            "- 422 FastAPI `detail`: invalid subject ID or malformed body.",
+            "- 503 `default_initialization_unavailable`: service/database failure; retry the same",
+            "  subject and snapshot.",
+            "",
+            "The catalog endpoint reports failures as 503 `default_catalog_unavailable`.",
+            "Coded errors use the existing `{code, message}` domain-error body.",
+            "",
+            "The catalog credential includes disabled plans and is read-only. The initializer",
+            "cannot read the catalog. Keep the two credentials separate and server-side.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -> APIRouter:
     router = APIRouter()
     authenticate = require_admin
@@ -924,7 +1021,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
     @router.post("/v1/admin/clients/{client_id}/provision", dependencies=[Depends(authenticate)])
     def provision(client_id: str, config: ProvisionRequest) -> Response:
         codes = [client_id, config.tenant_id]
-        if config.role != MEMBERSHIP_ROLE:
+        if config.role not in {MEMBERSHIP_ROLE, "default_catalog", "default_init"}:
             codes.append(config.service_code)
         if not all(SAFE_CODE.fullmatch(value) for value in codes):
             raise HTTPException(
@@ -941,6 +1038,13 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             rotate=config.rotate,
         )
         config.base_url = base
+        if config.role in {"default_catalog", "default_init"}:
+            return _download(
+                client_id,
+            _default_plan_guide(
+                client_id, key, config.tenant_id, base, config.role, definition
+            ),
+            )
         if service is None:
             levels = _levels(kit, config.tenant_id)
             return _download(

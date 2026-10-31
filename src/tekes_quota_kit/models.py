@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -438,5 +439,68 @@ class MembershipPurchase(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     __table_args__ = (
         UniqueConstraint("tenant_id", "order_code", name="uq_tq_membership_purchase"),
+        ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
+    )
+
+
+class DefaultPlan(Base):
+    __tablename__ = "tq_default_plans"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    __table_args__ = (UniqueConstraint("tenant_id", "plan_id", name="uq_tq_default_plan"),)
+
+
+class DefaultPlanRevision(Base):
+    __tablename__ = "tq_default_plan_revisions"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    packages: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("plan_id", "revision", name="uq_tq_default_plan_revision"),
+        ForeignKeyConstraint(["plan_id"], ["tq_default_plans.id"]),
+    )
+
+
+class DefaultInitialization(Base):
+    __tablename__ = "tq_default_initializations"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    initialization_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False, unique=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    plan_revision_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    default_plan_id: Mapped[str] = mapped_column(SUBJECT_ID_TYPE, nullable=False)
+    plan_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[dict] = mapped_column(JSON, nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "subject_id", name="uq_tq_default_initialization"),
+        ForeignKeyConstraint(["plan_revision_id"], ["tq_default_plan_revisions.id"]),
+    )
+
+
+class DefaultInitializationPackage(Base):
+    """Immutable issued Level rules; the usual engine still owns counters and charges."""
+
+    __tablename__ = "tq_default_initialization_packages"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    initialization_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False)
+    assignment_id: Mapped[int] = mapped_column(ID_TYPE, nullable=False, unique=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    limits: Mapped[list] = mapped_column(JSON, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("initialization_id", "sort_order", name="uq_tq_default_package_order"),
+        ForeignKeyConstraint(["initialization_id"], ["tq_default_initializations.id"]),
         ForeignKeyConstraint(["assignment_id"], ["tq_assignments.id"]),
     )

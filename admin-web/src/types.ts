@@ -25,6 +25,7 @@ export const statusNames: Record<string, string> = {
   atomic: '原子', composite: '组合', instant: '即时', durable: '持续',
   day: '每日', week: '每周', month: '每月', level_term: '会员期',
   issuer: '准入方', provider: '执行方', consumer: '准入+执行', membership: '会员同步',
+  default_catalog: '默认方案目录只读', default_init: '默认初始化发放',
 };
 
 /** Column titles shared by every table view. */

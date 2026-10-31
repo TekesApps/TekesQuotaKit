@@ -5,11 +5,12 @@ import sys
 from datetime import timedelta
 from urllib.parse import urljoin, urlparse
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tekes_quota_kit.api import create_app
-from tekes_quota_kit.core import QuotaKit, utc_now
+from tekes_quota_kit.core import QuotaError, QuotaKit, utc_now
 from tekes_quota_kit.main import run
 from tekes_quota_kit.models import Base, Client
 
@@ -157,6 +158,36 @@ def test_provision_download_is_one_time_and_rotation_requires_opt_in(tmp_path):
         path, headers=admin_headers(), json={**payload, "service_code": "missing"}
     )
     assert invalid.status_code == 404
+
+
+def test_default_plan_credentials_are_separate_and_download_role_contracts(tmp_path):
+    kit, client = setup(tmp_path)
+    for role, endpoint in (
+        ("default_catalog", "GET /v1/default-plans?limit=100&offset=0"),
+        ("default_init", "POST /v1/subjects/{subject_id}/default-initialization"),
+    ):
+        response = client.post(
+            f"/v1/admin/clients/skzy-{role}/provision",
+            headers=admin_headers(),
+            json={
+                "tenant_id": TENANT,
+                "role": role,
+                "service_code": "",
+                "base_url": "http://127.0.0.1:9460",
+                "subject_id_definition": "users.id",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert endpoint in response.text
+        assert f"Role: `{role}`" in response.text
+        assert ADMIN_KEY not in response.text and TOKEN_SECRET not in response.text
+        key = re.search(r"Client key \(server-side secret\): `([^`]+)`", response.text).group(1)
+        assert kit.client(key, role).tenant_id == TENANT
+        with pytest.raises(QuotaError, match="Invalid client credential"):
+            kit.client(key, "membership")
+        with kit.sessions() as db:
+            row = db.scalar(select(Client).where(Client.client_id == f"skzy-{role}"))
+            assert row.service_code == "*" and row.role == role
 
 
 def test_reported_usage_guide_matches_issuer_role(tmp_path):

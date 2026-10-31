@@ -1,0 +1,15 @@
+{
+  "quota_commit": "dbf5c3579a622285fc4a70a624641375d890e9fe",
+  "transport": "actual HTTP after stop/start of uvicorn process; original SQLite file preserved",
+  "checks": [
+    "initialization ID and applied_at unchanged",
+    "original package_ids unchanged",
+    "new missing requested plan still replayed",
+    "original expiry unchanged"
+  ],
+  "subjects": [
+    "skzy_http_b05861ec2290_a",
+    "skzy_http_b05861ec2290_b"
+  ],
+  "passed": true
+}

@@ -67,6 +67,7 @@ test('every editor control is the same height, unclipped and centered', async ({
       expect(height, `${name} search button height`).toBe(CONTROL_HEIGHT);
     const buttons = page.locator('.panel-head button');
     for (let b = 0; b < await buttons.count(); b++) {
+      if (!(await buttons.nth(b).isEnabled())) continue;
       const label = (await buttons.nth(b).textContent())?.trim() || `button ${b}`;
       await buttons.nth(b).click();
       await expect(page.locator('.drawer-panel')).toBeVisible();
@@ -524,6 +525,47 @@ test('Level test/formal publication survives editing and can be reversed', async
     await expect(row).toContainText(text);
   }
   await page.screenshot({path:'test-results/level-publication.png',fullPage:true});
+});
+
+test('creates, edits, orders and toggles a multi-Level default plan', async ({ page }) => {
+  await page.goto('/user-quota/admin');
+  await page.getByLabel('账号').fill('e2e');
+  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByRole('button', { name: /登录管理平台/ }).click();
+  await page.getByRole('button', { name: 'Level 等级', exact: true }).click();
+  const basic = page.locator('tbody tr').filter({ has: page.getByRole('cell', { name: 'basic', exact: true }) });
+  await basic.getByRole('button', { name: '操作菜单' }).click();
+  await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
+  await page.getByLabel('档位类型', { exact: false }).click();
+  await page.locator('.ant-select-dropdown').getByText('正式档位（formal）', { exact: true }).click();
+  await page.locator('.drawer-panel').getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.locator('.drawer-panel')).toHaveCount(0);
+  await page.getByRole('button', { name: '默认方案', exact: true }).click();
+  await page.getByRole('button', { name: '新增方案', exact: true }).click();
+  await page.getByLabel('方案名称').fill('居民首次绑定');
+  await page.getByLabel('包 1 标识').fill('welcome');
+  await page.getByLabel('包 1 名称').fill('欢迎额度');
+  await page.getByLabel('包 1 Level').click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'basic' }).click();
+  await page.getByLabel('包 1 有效天数').fill('30');
+  await page.getByRole('button', { name: '保存方案' }).click();
+  const row = page.locator('tbody tr').filter({ hasText: '居民首次绑定' });
+  await expect(row).toContainText('欢迎额度');
+  await expect(row).toContainText('30 天');
+  await row.getByRole('button', { name: '停用' }).click();
+  await expect(row).toContainText('停用');
+  await expect(row.getByRole('button', { name: '启用' })).toBeVisible();
+  await row.getByRole('button', { name: '启用' }).click();
+  await row.getByRole('button', { name: '编辑' }).click();
+  await page.getByLabel('方案名称').fill('居民首次绑定新');
+  await page.getByRole('button', { name: '添加额度包' }).click();
+  await page.getByLabel('包 2 标识').fill('welcome-extra');
+  await page.getByLabel('包 2 名称').fill('第二份欢迎额度');
+  await page.locator('.drawer-panel').getByLabel('包 2 Level').click();
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'basic' }).click();
+  await page.getByRole('button', { name: '保存方案' }).click();
+  const updated = page.locator('tbody tr').filter({ hasText: '居民首次绑定新' });
+  await expect(updated).toContainText('第二份欢迎额度');
 });
 
 

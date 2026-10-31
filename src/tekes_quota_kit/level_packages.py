@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
@@ -11,6 +12,7 @@ from sqlalchemy.orm import aliased
 
 from .models import (
     Assignment,
+    DefaultInitializationPackage,
     LevelPackageAdmission,
     LevelPackageUsage,
     Limit,
@@ -20,6 +22,37 @@ from .models import (
 
 
 class LevelPackages:
+    @staticmethod
+    def _assignment_limits(db, assignment):
+        snapshot = db.scalar(
+            select(DefaultInitializationPackage).where(
+                DefaultInitializationPackage.assignment_id == assignment.id
+            )
+        )
+        if snapshot is not None:
+            return [SimpleNamespace(**item, description=None) for item in snapshot.limits]
+        return list(
+            db.scalars(
+                select(Limit)
+                .where(
+                    Limit.tenant_id == assignment.tenant_id,
+                    Limit.level_code == assignment.level_code,
+                )
+                .order_by(Limit.quota_code)
+            )
+        )
+
+    @staticmethod
+    def _assignment_limit(db, assignment, quota):
+        return next(
+            (
+                rule
+                for rule in LevelPackages._assignment_limits(db, assignment)
+                if rule.quota_code == quota
+            ),
+            None,
+        )
+
     @staticmethod
     def _lock_subject(db, tenant, subject):
         values = dict(tenant_id=tenant, subject_id=subject, revision=0)
@@ -129,13 +162,7 @@ class LevelPackages:
         else:
             definitions = []
             for assignment in self._assignments(db, tenant, subject, now, lock=lock):
-                limit = db.scalar(
-                    select(Limit).where(
-                        Limit.tenant_id == tenant,
-                        Limit.level_code == assignment.level_code,
-                        Limit.quota_code == quota,
-                    )
-                )
+                limit = self._assignment_limit(db, assignment, quota)
                 if limit is not None:
                     start, end = _period(now, limit.period_kind, limit.timezone, assignment)
                     definitions.append((assignment, limit.limit_value, start, end))
@@ -186,14 +213,7 @@ class LevelPackages:
         items = []
         for assignment in self._user_packages(db, tenant, subject):
             quotas = []
-            for limit in db.scalars(
-                select(Limit)
-                .where(
-                    Limit.tenant_id == tenant,
-                    Limit.level_code == assignment.level_code,
-                )
-                .order_by(Limit.quota_code)
-            ):
+            for limit in self._assignment_limits(db, assignment):
                 item = dict(
                     quota_code=limit.quota_code,
                     limit=limit.limit_value,

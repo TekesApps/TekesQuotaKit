@@ -5,13 +5,13 @@ import zhCN from 'antd/locale/zh_CN';
 import { api, ApiError } from './api';
 import type { Row, User } from './types';
 import { Sidebar, type NavigationGroup } from './sidebar';
-import { AssignmentsPage, BusinessPage, ClientsPage, DataPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
+import { AssignmentsPage, BusinessPage, ClientsPage, DataPage, DefaultPlansPage, LevelsPage, LimitsPage, MembersPage, Overview, QuotasPage, ServicesPage, dataPages, type PageProps } from './pages';
 import './admin.css';
 import './login.css';
 import './antd-overrides.css';
 
 const navigation: NavigationGroup[] = [
-  { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 配额'], ['levels', 'Level 等级'], ['limits', '等级额度']] },
+  { label: '规则配置', items: [['services', 'Service 服务'], ['members', '组合成员'], ['quotas', 'Quota 配额'], ['levels', 'Level 等级'], ['limits', '等级额度'], ['default_plans', '默认方案']] },
   { label: '用户与接入', items: [['business', '业务系统'], ['assignments', '用户等级'], ['clients', '客户端凭据']] },
   { label: '运行数据', items: [['usage', '用量'], ['tokens', '凭证'], ['token_items', '场次明细'], ['ledger', '流水']] },
 ];
@@ -113,6 +113,7 @@ function App() {
             {section === 'quotas' && <QuotasPage {...props} />}
             {section === 'levels' && <LevelsPage {...props} />}
             {section === 'limits' && <LimitsPage {...props} />}
+            {section === 'default_plans' && <DefaultPlansPage {...props} />}
             {section === 'assignments' && <AssignmentsPage {...props} />}
             {section === 'clients' && <ClientsPage {...props} />}
             {section === 'business' && <BusinessPage {...props} />}
