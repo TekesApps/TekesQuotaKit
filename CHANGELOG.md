@@ -8,6 +8,19 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-31
+
+### Added
+
+- Existing default initialization accepts optional package codes to atomically issue
+  a selected subset of the plan in its original order; omitted selection remains full-plan.
+
+### Fixed
+
+- A finite zero term rule no longer forces a permanent package to expire or blocks
+  another funded package. Zero-only periodless balances are zero, with no counters or
+  fictional dates; actual consumption is denied before creating accounting records.
+
 ## [0.17.1] - 2026-10-31
 
 ### Fixed

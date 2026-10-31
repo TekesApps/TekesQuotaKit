@@ -915,6 +915,19 @@ the requested plan's existence or enabled status. A first success uses the **cur
 locked revision at grant time**, not the revision seen when SKZY saved the binding.
 There is no request revision field.
 
+Since 0.18.0, the same request optionally accepts `package_codes`, for example
+`["vip-week", "star-base"]`, selecting existing entries of that plan. Omission grants
+the complete plan as before. When present it must be a list of 1–100 unique non-blank
+strings, each 1–64 characters; null, an empty list, duplicates and wrong types return
+422 `detail`. Unknown codes on a first attempt return 400 `invalid_package_selection`.
+The selected subset is issued in the plan's order, regardless of request order, and
+its actual identities/snapshots are retained using the existing initialization records.
+Authenticated, structurally valid retries still replay the first fact before checking
+the requested plan or selected codes; changing the selection cannot claim again.
+The success response and GET catalog are unchanged. No new endpoint, permission or
+user-package model is needed. An SKZY empty selection is unconfigured: skip the call,
+not an empty initialization request.
+
 HTTP 200 for both first success and replay:
 
 ```json
@@ -983,6 +996,17 @@ future plan revisions can differ, while issued snapshots are immutable and drive
 admission, charges, balance and refunds using the existing Level calculation engine.
 Ordinary packages continue to use live Level limits.
 
+The duration requirement has one exception since 0.18.0: a finite zero `level_term`
+rule does not force a permanent package to expire. Without a term end this rule is a
+zero entitlement with no accounting period, not a funding source. Package/usage/balance
+views report zero used/remaining and null period boundaries for it, without creating
+Usage or a fake expiry. Other applicable packages can still fund the operation. With
+only such zero sources, issue/redeem/begin return `quota_exhausted` before creating
+usage/admission/ledger records. Positive/unlimited term rules still require an end.
+Real-period zero rules and existing top-up/refund/metered accounting retain their
+behavior. The previously unsupported combination of only periodless zero sources and
+legacy Service top-ups is not opened here or advertised as spendable balance.
+
 Since 0.17.1, a private default plan may explicitly reference a `test` or `formal`
 Level. Publication status controls the public membership catalog, not this authorized
 private grant. Creating/enabling a private plan never promotes or clones its Level;
@@ -1006,6 +1030,7 @@ the four new `tq_default_*` tables for audit. No delete/reset initialization API
 | --- | --- | --- |
 | 401 | `unauthorized` in code/message | Unknown key or wrong role; missing Bearer uses existing detail body |
 | 404 | `default_plan_not_found` | Missing or foreign-tenant plan on first attempt |
+| 400 | `invalid_package_selection` | A first attempt selects unknown package codes |
 | 409 | `default_plan_disabled` | Disabled plan on first attempt |
 | 422 | FastAPI detail list | Invalid fields, extra fields, lengths, subject ID or pagination |
 | 503 | `default_catalog_unavailable` | Catalog database unavailable, including credential lookup |

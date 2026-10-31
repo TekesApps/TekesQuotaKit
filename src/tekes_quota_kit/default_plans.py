@@ -100,7 +100,12 @@ class DefaultPlans:
             )
             _require(bool(rules), "invalid_default_package", "Level must define quota limits", 400)
             _require(
-                days is not None or all(rule.period_kind != "level_term" for rule in rules),
+                days is not None
+                or all(
+                    rule.period_kind != "level_term"
+                    or (rule.limit_mode == "finite" and rule.limit_value == 0)
+                    for rule in rules
+                ),
                 "missing_term_end",
                 "Level term requires a validity",
                 400,
@@ -268,8 +273,10 @@ class DefaultPlans:
             replayed=replayed,
         )
 
-    def initialize_defaults(self, tenant, subject, plan_id, source):
-        from .core import _period, _require, _subject, utc_now
+    def initialize_defaults(
+        self, tenant, subject, plan_id, source, package_codes: list[str] | None = None
+    ):
+        from .core import _require, _subject, utc_now
 
         subject = _subject(subject)
         with self.sessions.begin() as db:
@@ -287,6 +294,18 @@ class DefaultPlans:
             plan = self._default_plan(db, tenant, plan_id, lock=True)
             _require(plan.enabled, "default_plan_disabled", "Default plan is disabled", 409)
             revision = self._default_revision(db, plan)
+            packages = revision.packages
+            if package_codes is not None:
+                selected = set(package_codes)
+                _require(
+                    bool(selected)
+                    and len(selected) == len(package_codes)
+                    and selected <= {item["code"] for item in packages},
+                    "invalid_package_selection",
+                    "Selected packages must be unique members of the plan",
+                    400,
+                )
+                packages = [item for item in packages if item["code"] in selected]
             now = utc_now()
             fact = DefaultInitialization(
                 initialization_id=secrets.token_urlsafe(24),
@@ -302,7 +321,7 @@ class DefaultPlans:
             db.flush()
             existing = self._user_packages(db, tenant, subject)
             order = max((row.sort_order for row in existing), default=-1) + 1
-            for position, item in enumerate(revision.packages):
+            for position, item in enumerate(packages):
                 end = now + timedelta(days=item["validity_days"]) if item["validity_days"] else None
                 assignment = Assignment(
                     tenant_id=tenant,
@@ -315,8 +334,6 @@ class DefaultPlans:
                     term_start=now,
                     term_end=end,
                 )
-                for rule in item["limits"]:
-                    _period(now, rule["period_kind"], rule["timezone"], assignment)
                 db.add(assignment)
                 db.flush()
                 db.add(

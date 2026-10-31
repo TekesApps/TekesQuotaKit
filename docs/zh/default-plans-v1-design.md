@@ -145,6 +145,14 @@ SKZY 对应合同 `SK-Backend/docs/contracts/quota-default-initialization-v1.md`
 
 ### B. 包、快照、期限和顺序
 
+0.18.0 通用多标识入口补充：继续使用同一初始化 URL，原 default_plan_id/source 不变，
+可选 `package_codes` 一次传多个现有包标识；省略仍发全包。显式传入须为 1–100 个
+唯一非空字符串（1–64字符），null/空数组/重复/错类型走422 detail；首次未知code走
+400 invalid_package_selection。按当前锁定修订的原顺序发所选子集，不按请求排序。
+结构合法后先查既有初始化事实并重放，再校验当前plan/selection；实际子集的code/顺序/
+快照仍用现有包关联记录保存，成功载荷无新字段，不改一人多包模型、权限或schema。
+小区选空在SKZY保存为未配置并跳过调用，不传空数组消费初始化机会。
+
 约定 v1 仅支持有序 Level 包：方案条目 `code` 为方案内稳定包模板标识（不是用户实例 ID），
 `name` 为包显示名；内部引用现有 `level_code`。不混入 legacy Service top-up。
 一次发放内 `package_ids` 为按方案顺序排列的 Assignment.id 的十进制字符串，
@@ -200,6 +208,21 @@ Quota 不承诺可以创建指定 ID 来恢复；由双方查明并纠正错误�
 SKZY 不主动安排该重试；失败响应也不能证明实际权益不存在，后续消费以 Quota 实际结果为准。
 
 ## 实施设计
+
+### 永久包中的零额度期限规则（现有模型兼容修复）
+
+同一用户本就支持多个 Assignment，默认初始化也本就支持一个方案多个包。
+为永久基础包修复现有周期校验，不创建另一套发放模型或小区状态。
+严格仅当 `finite + limit_value=0 + level_term + 无 term_end/expires_at` 时，
+该条目为无周期零来源：保留包身份、额度0，读视图 used/remaining=0、周期边界 null，
+不创建 Usage，不要求虚构截止，也不阻断后续具有真实周期的有效包。
+仅剩这种零来源时，消费在建用量前返回 quota_exhausted；无成功 Token/Admission/Ledger。
+准入、扣减、metered overage 不将这种来源当成资金来源；真实周期的零额度仍保持旧行为。
+正额度或 unlimited 的 level_term 仍必须有真实截止。
+
+此前本就不支持的“仅无周期零来源 + legacy Service topup”不在本次开放；
+余额不得将其显示为可消费。已有真实周期的 legacy topup、旧Token、原来源退款不变。
+需要覆盖永久基础与 VIP7 的消费/到期fallback、付费保持、超额结算和零额度拒绝无残留。
 
 1. 管理端新增默认方案页及 tenant 范围 CRUD/启停接口；ID 创建后不可编辑，不物理删除。
    名称、内容、启停修改递增 revision，修订保存完整有序条目/额度快照；
