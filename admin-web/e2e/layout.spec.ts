@@ -12,7 +12,7 @@ type Measure = { field: string; height: number; clipped: boolean; offCenter: num
 
 async function measure(page: Page, scope: string): Promise<Measure[]> {
   return page.evaluate(scope => [...document.querySelectorAll(`${scope} label`)].flatMap(label => {
-    const control = label.querySelector<HTMLElement>('.ant-select, :scope > input:not([type=checkbox])');
+    const control = label.querySelector<HTMLElement>('.ant-select, :scope > input:not([type=checkbox]):not([type=radio])');
     if (!control || !control.offsetParent) return [];
     const frame = control.getBoundingClientRect();
     const inner = (control.matches('input') ? control : control.querySelector('input')) as HTMLInputElement;
@@ -548,11 +548,12 @@ test('creates and edits an entitlement plan while preserving generated package i
   };
   await addLevel('basic');
   await expect(dialog.getByLabel('会员权益 1', { exact: true })).toContainText('basic');
-  await expect(dialog.getByLabel('会员权益 1', { exact: true }).getByRole('combobox')).toHaveCount(1);
-  const firstDuration = dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true });
-  await expect(firstDuration).toHaveValue('permanent');
+  await expect(dialog.getByLabel('会员权益 1', { exact: true }).getByRole('combobox')).toHaveCount(0);
+  const firstDuration = dialog.getByRole('radio', { name: '会员权益 1 按天', exact: true });
+  await expect(dialog.getByRole('radio', { name: '会员权益 1 永久', exact: true })).toBeChecked();
+  await expect(firstDuration).not.toBeChecked();
   await expect(dialog.getByLabel('会员权益 1 有效天数', { exact: true })).toHaveCount(0);
-  await firstDuration.selectOption('days');
+  await firstDuration.check();
   const firstDays = dialog.getByLabel('会员权益 1 有效天数', { exact: true });
   await expect(firstDays).toHaveValue('');
   await expect(firstDays).toHaveAttribute('required', '');
@@ -570,7 +571,7 @@ test('creates and edits an entitlement plan while preserving generated package i
   page.off('request', countInvalidCreates);
   await firstDays.fill('30');
   await addLevel('basic');
-  await dialog.getByRole('combobox', { name: '会员权益 2 有效期', exact: true }).selectOption('days');
+  await dialog.getByRole('radio', { name: '会员权益 2 按天', exact: true }).check();
   await dialog.getByLabel('会员权益 2 有效天数', { exact: true }).fill('7');
   await addLevel('usage-plan');
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(3);
@@ -656,13 +657,15 @@ test('creates and edits an entitlement plan while preserving generated package i
   dialog = page.getByRole('dialog', { name: '编辑权益方案', exact: true });
   await expect(dialog.getByLabel('会员权益 1', { exact: true })).toContainText('Legacy VIP custom name');
   await expect(dialog.getByLabel('会员权益 2', { exact: true })).toContainText('Legacy Star custom name');
-  await expect(dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true })).toHaveValue('days');
+  await expect(dialog.getByRole('radio', { name: '会员权益 1 按天', exact: true })).toBeChecked();
   await expect(dialog.getByLabel('会员权益 1 有效天数', { exact: true })).toHaveValue('7');
-  const starDuration = dialog.getByRole('combobox', { name: '会员权益 2 有效期', exact: true });
-  await expect(starDuration).toHaveValue('permanent');
-  await starDuration.selectOption('days');
+  const starDuration = dialog.getByRole('radio', { name: '会员权益 2 永久', exact: true });
+  await expect(starDuration).toBeChecked();
+  await dialog.getByRole('radio', { name: '会员权益 2 按天', exact: true }).check();
+  await expect(starDuration).not.toBeChecked();
   await dialog.getByLabel('会员权益 2 有效天数', { exact: true }).fill('5');
-  await starDuration.selectOption('permanent');
+  await starDuration.check();
+  await expect(dialog.getByRole('radio', { name: '会员权益 2 按天', exact: true })).not.toBeChecked();
   await expect(dialog.getByLabel('会员权益 2 有效天数', { exact: true })).toHaveCount(0);
   await dialog.getByLabel('会员权益 1', { exact: true }).getByRole('button', { name: '下移', exact: true }).click();
   await dialog.getByRole('button', { name: '保存方案', exact: true }).click();
@@ -691,7 +694,7 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
     await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: code }).first().click();
   }
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(2);
-  await dialog.getByRole('combobox', { name: '会员权益 1 有效期', exact: true }).selectOption('days');
+  await dialog.getByRole('radio', { name: '会员权益 1 按天', exact: true }).check();
   await dialog.getByLabel('会员权益 1 有效天数', { exact: true }).fill('7');
   // Wait for the desktop-width dropdown's leave animation before resizing.
   await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
@@ -713,6 +716,11 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
     expect(dimensions.viewport).toBe(width);
     expect(dimensions.documentWidth).toBeLessThanOrEqual(width);
     expect(dimensions.dialogScrollWidth).toBeLessThanOrEqual(dimensions.dialogWidth);
+    for (const radio of await dialog.getByRole('radio').all()) {
+      const bounds = await radio.boundingBox();
+      expect(bounds?.width).toBe(16);
+      expect(bounds?.height).toBe(16);
+    }
   };
   await checkSize(1280);
   await checkSize(390);
