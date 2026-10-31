@@ -1,11 +1,11 @@
 # Default-plan v1 non-production handoff
 
-This candidate is **unreleased**. Its package metadata remains 0.16.2; use the exact
-Git commit recorded on [PR #42](https://github.com/TekesApps/TekesQuotaKit/pull/42),
-not that metadata version alone, to identify the implementation. No production
-deployment, real credential provisioning, estate changes or real-user gifts are authorized.
+Default plans are introduced in **0.17.0**. Use the exact merged/tagged commit on
+[PR #42](https://github.com/TekesApps/TekesQuotaKit/pull/42) for implementation identity.
+This guide creates only synthetic localhost fixtures. Production deployment and validation
+are recorded separately; its examples never authorize real-user grants.
 
-The [API reference](api.md#default-plans-and-first-initialization-unreleased) is the
+The [API reference](api.md#default-plans-and-first-initialization-0170) is the
 frozen consumption contract. The Chinese [design](zh/default-plans-v1-design.md) records
 the initial review, the SKZY acceptance and implementation boundaries. Tracking:
 [Quota #40](https://github.com/TekesApps/TekesQuotaKit/issues/40),

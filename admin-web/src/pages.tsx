@@ -518,7 +518,7 @@ export function DefaultPlansPage({ tenant, revision, onChanged }: PageProps) {
   async function toggle(plan: DefaultPlan) {
     setError('');
     try {
-      await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}`, 'PUT', { name: plan.name, enabled: !plan.enabled, revision: plan.revision, packages: plan.packages });
+      await api(`/tenants/${enc(tenant)}/default-plans/${enc(plan.id)}/status`, 'PATCH', { enabled: !plan.enabled, revision: plan.revision });
       onChanged(plan.enabled ? '默认方案已停用' : '默认方案已启用');
     } catch (e) { setError(e instanceof Error ? e.message : '更新方案状态失败'); }
   }

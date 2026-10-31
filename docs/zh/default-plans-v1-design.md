@@ -8,7 +8,7 @@
 
 实现候选现已加入：两个消费端点、独立角色/provision、方案管理页、不可变修订与发放快照、
 同事务追加发放和首次事实，以及四张表的 MySQL/SQLite 迁移。尚未发布或部署。
-准确消费合同以 [API](../api.md#default-plans-and-first-initialization-unreleased) 为准，
+准确消费合同以 [API](../api.md#default-plans-and-first-initialization-0170) 为准，
 复现和 SKZY 交接见 [联调说明](../default-plans-integration.md)。
 
 用户提供的 v1 职责、URL、请求/成功响应和首次发放幂等语义**可实现，予以确认并保存**。

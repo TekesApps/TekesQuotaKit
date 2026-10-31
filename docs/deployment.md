@@ -400,9 +400,9 @@ plan before switching the service. SKZY classifies its existing VIP as test whil
 星/银/金/铂金 remain formal. This classification belongs to the business deployment,
 not a name-based rule in QuotaKit or Backend. Auxiliary grants remain private.
 
-### Default plans (unreleased)
+### Default plans (0.17.0)
 
-This is a candidate migration, not authorization to deploy. It adds four tables only;
+The 0.17.0 migration adds four tables only;
 old assignments, paid packages and usage are not rewritten. Before starting candidate
 code against an existing v0.16.2 schema, take a backup, stop writers, review and apply
 `migrations/add_default_plans_mysql.sql` with an explicit database selected. MySQL DDL

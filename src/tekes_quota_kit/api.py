@@ -47,6 +47,12 @@ class DefaultPlanUpdate(DefaultPlanConfig):
     revision: int = Field(ge=1, strict=True)
 
 
+class DefaultPlanStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+    revision: int = Field(ge=1, strict=True)
+
+
 class DefaultInitializationSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
     system: str = Field(min_length=1, max_length=64)
@@ -286,6 +292,12 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
     @app.get("/v1/admin/tenants/{tenant}/default-plans/{plan_id}", dependencies=[Depends(admin)])
     def get_default_plan(tenant: str, plan_id: str) -> dict:
         return kit.get_default_plan(tenant, plan_id)
+
+    @app.patch(
+        "/v1/admin/tenants/{tenant}/default-plans/{plan_id}/status", dependencies=[Depends(admin)]
+    )
+    def set_default_plan_status(tenant: str, plan_id: str, payload: DefaultPlanStatus) -> dict:
+        return kit.set_default_plan_enabled(tenant, plan_id, payload.enabled, payload.revision)
 
     @app.put("/v1/admin/tenants/{tenant}/default-plans/{plan_id}", dependencies=[Depends(admin)])
     def update_default_plan(tenant: str, plan_id: str, payload: DefaultPlanUpdate) -> dict:

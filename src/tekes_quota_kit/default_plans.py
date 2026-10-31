@@ -197,6 +197,35 @@ class DefaultPlans:
         with self.sessions() as db:
             return self._default_plan_payload(db, self._default_plan(db, tenant, plan_id))
 
+    def set_default_plan_enabled(self, tenant, plan_id, enabled, revision):
+        from .core import _require, utc_now
+
+        _require(type(enabled) is bool, "invalid_default_plan", "Enabled must be boolean", 400)
+        with self.sessions.begin() as db:
+            row = self._default_plan(db, tenant, plan_id, lock=True)
+            _require(
+                row.revision == revision,
+                "default_plan_changed",
+                "Reload the changed plan",
+                409,
+            )
+            previous = self._default_revision(db, row)
+            now = utc_now()
+            row.enabled, row.updated_at = enabled, now
+            row.revision += 1
+            db.add(
+                DefaultPlanRevision(
+                    plan_id=row.id,
+                    revision=row.revision,
+                    name=row.name,
+                    enabled=enabled,
+                    packages=previous.packages,
+                    created_at=now,
+                )
+            )
+            db.flush()
+            return self._default_plan_payload(db, row)
+
     def list_default_plans(self, tenant, limit=100, offset=0, *, summary=False):
         from .core import _require
 

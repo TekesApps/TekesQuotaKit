@@ -861,7 +861,7 @@ retain all Levels for internal testing and history. Publication does not change
 quotas, assignments, payment prices, or user-specific auxiliary grants. Formal
 publication does not automatically create a purchasable business SKU.
 
-## Default plans and first initialization (unreleased)
+## Default plans and first initialization (0.17.0)
 
 The business backend owns estate membership and eligibility. Quota stores `source` only
 for audit and never verifies estate/room ownership. A default plan groups 1–100 ordered
@@ -952,6 +952,7 @@ Under `/v1/admin/tenants/{tenant}/default-plans` (existing admin auth):
 | POST | collection | Create and return stable generated ID, revision 1 |
 | GET | `/{plan_id}` | Detailed current plan |
 | PUT | `/{plan_id}` | Save full plan with expected revision; stale revision is 409 `default_plan_changed` |
+| PATCH | `/{plan_id}/status` | `{enabled,revision}` changes status while retaining the current package/limit snapshot |
 
 Create body (update also requires `revision`, integer >=1):
 
@@ -968,7 +969,7 @@ Create body (update also requires `revision`, integer >=1):
 Names are non-blank, at most 100 characters; package codes are unique within a plan,
 non-blank, at most 64. Each Level must be formal and define limits. `validity_days`
 must be explicitly null (permanent) or an integer 1–3660. A `level_term` limit requires
-a non-null duration. Each saved revision copies the referenced Level's current limits;
+a non-null duration. Each full plan save copies the referenced Level's current limits;
 future plan revisions can differ, while issued snapshots are immutable and drive actual
 admission, charges, balance and refunds using the existing Level calculation engine.
 Ordinary packages continue to use live Level limits.
@@ -1002,5 +1003,5 @@ creates no fact. Re-enable the same existing ID to recover a disabled plan; a wr
 requires configuration investigation, not a second entitlement identity.
 
 See [non-production HTTP fixture and handoff](default-plans-integration.md) and
-[migration instructions](deployment.md#default-plans-unreleased). No release or
+[migration instructions](deployment.md#default-plans-0170). No release or
 production deployment is implied by the candidate documentation.

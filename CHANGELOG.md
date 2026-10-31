@@ -8,6 +8,8 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-31
+
 ### Added
 
 - Tenant default plans with ordered formal Level packages, immutable revision/issued
@@ -15,6 +17,11 @@ Before 1.0, minor versions may contain breaking changes.
 - Once-per-tenant/subject default initialization with atomic additive grants and durable
   replay facts. Per-user validity starts at actual grant time; seven days is 604800 seconds.
 - MySQL/SQLite additive migrations, API contract, and a synthetic localhost HTTP fixture.
+
+### Fixed
+
+- Default plan status changes preserve the published package snapshot, so a plan can
+  still be disabled after its original Level is returned to test publication.
 
 ## [0.13.3] - 2026-10-16
 
@@ -382,7 +389,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.16.2...v0.17.0
 [0.8.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.7.1...v0.7.2

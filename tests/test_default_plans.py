@@ -425,3 +425,28 @@ def test_catalog_and_initialization_database_errors_have_distinct_503_codes(tmp_
     )
     assert init_credential_lookup.status_code == 503
     assert init_credential_lookup.json()["code"] == "default_initialization_unavailable"
+
+
+def test_status_change_preserves_snapshot_after_level_demotion(tmp_path):
+    kit, client = setup(tmp_path)
+    plan = make_plan(kit, ("gift-a",))
+    kit.put_level(TENANT, "gift-a", publication_status="test")
+    kit.put_limit(TENANT, "gift-a", "visits", "finite", 0, "month", "UTC")
+    path = f"/v1/admin/tenants/{TENANT}/default-plans/{plan['id']}/status"
+    assert (
+        client.patch(path, headers=CATALOG, json={"enabled": False, "revision": 1}).status_code
+        == 401
+    )
+    disabled = client.patch(path, headers=ADMIN, json={"enabled": False, "revision": 1})
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["enabled"] is False and disabled.json()["revision"] == 2
+    with pytest.raises(QuotaError, match="disabled"):
+        kit.initialize_defaults(TENANT, "new-subject", plan["id"], source())
+    assert (
+        client.patch(path, headers=ADMIN, json={"enabled": True, "revision": 1}).status_code == 409
+    )
+    enabled = client.patch(path, headers=ADMIN, json={"enabled": True, "revision": 2})
+    assert enabled.status_code == 200 and enabled.json()["revision"] == 3
+    applied = kit.initialize_defaults(TENANT, "new-subject", plan["id"], source())
+    assert applied["initialization"]["plan_revision"] == 3
+    assert kit.user_packages(TENANT, "new-subject")["packages"][0]["quotas"][0]["limit"] == 3
