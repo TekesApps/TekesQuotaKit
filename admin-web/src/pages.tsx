@@ -481,10 +481,10 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
                 <span>有效期</span>
                 <div className="plan-duration-modes">
                   <label><input type="radio" name={`duration-${item.code}`} aria-label={`会员权益 ${index + 1} 按天`} checked={item.validity_days !== null} disabled={busy} onChange={() => updateDuration(index, '')} />按天</label>
+                  {item.validity_days !== null && <><input className="plan-duration-days" aria-label={`会员权益 ${index + 1} 有效天数`} type="number" required min={1} max={3660} step={1} disabled={busy} value={item.validity_days} onChange={e => updateDuration(index, e.target.value === '' ? '' : Number(e.target.value))} /><span>天</span></>}
                   <label><input type="radio" name={`duration-${item.code}`} aria-label={`会员权益 ${index + 1} 永久`} checked={item.validity_days === null} disabled={busy} onChange={() => updateDuration(index, null)} />永久</label>
                 </div>
               </div>
-              {item.validity_days !== null && <label>有效天数<input aria-label={`会员权益 ${index + 1} 有效天数`} type="number" required min={1} max={3660} step={1} disabled={busy} value={item.validity_days} onChange={e => updateDuration(index, e.target.value === '' ? '' : Number(e.target.value))} /></label>}
             </div>
             <div className="toolbar">
               <button type="button" className="secondary" disabled={busy || index === 0} onClick={() => move(index, -1)}>上移</button>

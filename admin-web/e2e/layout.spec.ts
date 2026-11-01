@@ -716,6 +716,14 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
     expect(dimensions.viewport).toBe(width);
     expect(dimensions.documentWidth).toBeLessThanOrEqual(width);
     expect(dimensions.dialogScrollWidth).toBeLessThanOrEqual(dimensions.dialogWidth);
+    const day = (await dialog.getByRole('radio', { name: '会员权益 1 按天', exact: true }).boundingBox())!;
+    const days = (await dialog.getByLabel('会员权益 1 有效天数', { exact: true }).boundingBox())!;
+    const permanent = (await dialog.getByRole('radio', { name: '会员权益 1 永久', exact: true }).boundingBox())!;
+    expect(days.x).toBeGreaterThan(day.x + day.width);
+    expect(days.x + days.width).toBeLessThan(permanent.x);
+    expect(Math.abs(days.y + days.height / 2 - (day.y + day.height / 2))).toBeLessThanOrEqual(1);
+    expect(days.height).toBe(CONTROL_HEIGHT);
+    expect(days.width).toBe(80);
     for (const radio of await dialog.getByRole('radio').all()) {
       const bounds = await radio.boundingBox();
       expect(bounds?.width).toBe(16);

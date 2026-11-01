@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.18.4] - 2026-11-01
+
+### Changed
+- Place the day-count input immediately after the day-based radio option on the same line, including narrow screens.
+
 ## [0.18.3] - 2026-11-01
 
 ### Changed
@@ -427,7 +432,8 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.3...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.4...HEAD
+[0.18.4]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.0...v0.18.1
