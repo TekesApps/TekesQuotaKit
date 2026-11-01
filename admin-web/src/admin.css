@@ -387,11 +387,12 @@
 .plan-editor-body {display:grid;gap:20px;overflow-y:auto;min-height:0;padding:4px 2px 24px;}
 .plan-memberships {display:grid;gap:16px;}
 .plan-memberships h3,.plan-memberships p {margin:0;}
-.plan-entitlement {display:grid;grid-template-columns:minmax(0,1fr) 160px auto;align-items:center;gap:24px;padding:20px;border:1px solid var(--line);border-radius:12px;}
+.plan-entitlement {display:grid;grid-template-columns:minmax(0,1fr) 260px auto;align-items:center;gap:24px;padding:20px;border:1px solid var(--line);border-radius:12px;}
 .plan-duration {display:grid;gap:10px;}
-.plan-duration-modes {display:flex;gap:16px;align-items:center;flex-wrap:wrap;}
-.plan-duration-modes label {display:inline-flex;gap:6px;align-items:center;min-height:38px;cursor:pointer;}
-.plan-duration-modes input {width:16px;height:16px;min-height:0;margin:0;padding:0;accent-color:var(--primary);}
+.plan-duration-modes {display:flex;gap:10px;align-items:center;}
+.plan-duration-modes label {display:inline-flex;gap:6px;align-items:center;min-height:38px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.plan-duration-modes input[type=radio] {width:16px;height:16px;min-height:0;margin:0;padding:0;accent-color:var(--primary);}
+.plan-duration-modes .plan-duration-days {width:80px;flex:0 0 80px;}
 .plan-entitlement-name {display:grid;gap:6px;min-width:0;overflow-wrap:anywhere;}
 .plan-entitlement .toolbar {flex-wrap:wrap;gap:8px;}
 .plan-editor .form-actions {padding-top:16px;border-top:1px solid var(--line);flex-shrink:0;}

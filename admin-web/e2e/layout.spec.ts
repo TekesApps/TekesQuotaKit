@@ -601,6 +601,8 @@ test('creates and edits an entitlement plan while preserving generated package i
   await expect(row).toContainText('停用');
   await expect(row.getByRole('button', { name: '启用' })).toBeVisible();
   await row.getByRole('button', { name: '启用' }).click();
+  // Wait for the re-enabled plan's fresh revision before opening the editor.
+  await expect(row.getByRole('button', { name: '停用', exact: true })).toBeVisible();
   await row.getByRole('button', { name: '编辑' }).click();
   dialog = page.getByRole('dialog', { name: '编辑权益方案', exact: true });
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(3);
@@ -609,8 +611,11 @@ test('creates and edits an entitlement plan while preserving generated package i
   await dialog.getByLabel('方案名称').fill('居民首次绑定新');
   await dialog.getByLabel('会员权益 1', { exact: true }).getByRole('button', { name: '下移', exact: true }).click();
   const editRequestPromise = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith(`/default-plans/${initialId}`));
+  const editResponsePromise = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/default-plans/${initialId}`));
   await dialog.getByRole('button', { name: '保存方案', exact: true }).click();
   const editRequest = await editRequestPromise;
+  const editResponse = await editResponsePromise;
+  expect(editResponse.status(), await editResponse.text()).toBe(200);
   const editedPackages = editRequest.postDataJSON().packages as typeof createdPackages;
   expect(editedPackages.map(item => item.code)).toEqual([createdPackages[1].code, createdPackages[0].code, createdPackages[2].code]);
   expect(editedPackages.map(item => item.name)).toEqual(['basic', 'basic', 'usage-plan']);
@@ -716,6 +721,14 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
     expect(dimensions.viewport).toBe(width);
     expect(dimensions.documentWidth).toBeLessThanOrEqual(width);
     expect(dimensions.dialogScrollWidth).toBeLessThanOrEqual(dimensions.dialogWidth);
+    const day = (await dialog.getByRole('radio', { name: '会员权益 1 按天', exact: true }).boundingBox())!;
+    const days = (await dialog.getByLabel('会员权益 1 有效天数', { exact: true }).boundingBox())!;
+    const permanent = (await dialog.getByRole('radio', { name: '会员权益 1 永久', exact: true }).boundingBox())!;
+    expect(days.x).toBeGreaterThan(day.x + day.width);
+    expect(days.x + days.width).toBeLessThan(permanent.x);
+    expect(Math.abs(days.y + days.height / 2 - (day.y + day.height / 2))).toBeLessThanOrEqual(1);
+    expect(days.height).toBe(CONTROL_HEIGHT);
+    expect(days.width).toBe(80);
     for (const radio of await dialog.getByRole('radio').all()) {
       const bounds = await radio.boundingBox();
       expect(bounds?.width).toBe(16);
