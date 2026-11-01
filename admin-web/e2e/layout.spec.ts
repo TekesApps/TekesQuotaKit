@@ -601,6 +601,8 @@ test('creates and edits an entitlement plan while preserving generated package i
   await expect(row).toContainText('停用');
   await expect(row.getByRole('button', { name: '启用' })).toBeVisible();
   await row.getByRole('button', { name: '启用' }).click();
+  // Wait for the re-enabled plan's fresh revision before opening the editor.
+  await expect(row.getByRole('button', { name: '停用', exact: true })).toBeVisible();
   await row.getByRole('button', { name: '编辑' }).click();
   dialog = page.getByRole('dialog', { name: '编辑权益方案', exact: true });
   await expect(dialog.locator('section[aria-label^="会员权益 "]')).toHaveCount(3);
@@ -609,8 +611,11 @@ test('creates and edits an entitlement plan while preserving generated package i
   await dialog.getByLabel('方案名称').fill('居民首次绑定新');
   await dialog.getByLabel('会员权益 1', { exact: true }).getByRole('button', { name: '下移', exact: true }).click();
   const editRequestPromise = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith(`/default-plans/${initialId}`));
+  const editResponsePromise = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/default-plans/${initialId}`));
   await dialog.getByRole('button', { name: '保存方案', exact: true }).click();
   const editRequest = await editRequestPromise;
+  const editResponse = await editResponsePromise;
+  expect(editResponse.status(), await editResponse.text()).toBe(200);
   const editedPackages = editRequest.postDataJSON().packages as typeof createdPackages;
   expect(editedPackages.map(item => item.code)).toEqual([createdPackages[1].code, createdPackages[0].code, createdPackages[2].code]);
   expect(editedPackages.map(item => item.name)).toEqual(['basic', 'basic', 'usage-plan']);
