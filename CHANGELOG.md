@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.18.5] - 2026-11-10
+
+### Changed
+- Use a toggle switch for the entitlement plan editor's enabled state.
+
 ## [0.18.4] - 2026-11-01
 
 ### Changed

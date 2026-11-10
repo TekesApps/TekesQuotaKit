@@ -94,8 +94,9 @@
   min-height: 38px;
 }
 
-/* Table button defaults must not enlarge antd availability switches. */
-.admin-shell .table-wrap button.ant-switch {
+/* Button defaults must not enlarge antd availability switches. */
+.admin-shell .table-wrap button.ant-switch,
+.plan-editor button.ant-switch {
   display: inline-block;
   min-height: 22px;
   height: 22px;
@@ -103,4 +104,5 @@
   border: 0;
   border-radius: 100px;
   line-height: 22px;
+  width: max-content;
 }

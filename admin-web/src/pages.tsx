@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Select, Tooltip } from 'antd';
+import { Select, Switch, Tooltip } from 'antd';
 import { api, download, enc } from './api';
 import { Actions, Drawer, Editor, PAGE_SIZE, Pager, SearchBar, Status, Table, useCodes, useTable, type Column, type Field, type Option, type UpdateRow } from './components';
 import { columnNames, type Row, text, time, formatNumber, formatPercent } from './types';
@@ -470,7 +470,7 @@ function DefaultPlanEditor({ tenant, plan, levels, onClose, onSaved }: {
         {error && <div className="error-box" role="alert">{error}</div>}
         <div className="grid two">
           <label>方案名称 *<input value={name} required maxLength={100} disabled={busy} onChange={e => setName(e.target.value)} /></label>
-          <label>启用状态<input aria-label="启用方案" type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={enabled} disabled={busy} onChange={e => setEnabled(e.target.checked)} /></label>
+          <label>启用状态<Switch aria-label="启用方案" checked={enabled} disabled={busy} onChange={setEnabled} /></label>
         </div>
         <div className="plan-memberships">
           <div><h3>会员权益</h3><p className="muted">从已有会员档位选择，按以下顺序发放。选择永久有效，或按天设置有效期；期限从首次发放时间计算。</p></div>
