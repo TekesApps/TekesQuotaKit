@@ -36,7 +36,7 @@ it or put it in Issue/PR evidence. Fields:
 | base_url, tenant_id | URL and synthetic tenant |
 | catalog_key | Bearer default_catalog, GET catalog only |
 | initialization_key | Bearer default_init, POST initialization only |
-| admin_key | Test-only admin Bearer for configuration/issued package inspection |
+| admin_key | Short-lived individual fixture system-admin session Bearer (12 hours; initialize a fresh fixture for a later session) for configuration/issued package inspection |
 | consumer_key | Test-only visit Service consumption/balance |
 | vip_week_plan_id | One formal VIP Level package, seven days |
 | multi_plan_id | VIP + bonus, both seven days, ordered |

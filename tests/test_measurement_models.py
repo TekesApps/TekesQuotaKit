@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, utc_now
 from tekes_quota_kit.models import Base, Ledger, Token, TokenItem, Usage
 
@@ -28,7 +27,7 @@ CHILDREN = (
 def setup(tmp_path):
     kit = QuotaKit(f"sqlite:///{tmp_path / 'measurement-models.db'}", SECRET)
     Base.metadata.create_all(kit.engine)
-    client = TestClient(create_app(kit, ADMIN_KEY))
+    client = configured_client(kit, ADMIN_KEY)
     admin_put(client, f"/v1/admin/tenants/{TENANT}/levels/basic", {})
     admin_put(
         client,

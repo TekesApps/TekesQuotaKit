@@ -5,10 +5,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import func, select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaError, QuotaKit
 from tekes_quota_kit.models import (
     Base,
@@ -33,7 +32,7 @@ def setup(tmp_path, filename="default-selection.db"):
     for level, amount in (("paid", 1), ("gift-a", 2), ("gift-b", 3), ("gift-c", 5)):
         kit.put_level(TENANT, level, publication_status="formal")
         kit.put_limit(TENANT, level, "visits", "finite", amount, "month", "UTC")
-    client = TestClient(create_app(kit, ADMIN_KEY))
+    client = configured_client(kit, ADMIN_KEY)
     return kit, client
 
 

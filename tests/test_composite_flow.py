@@ -3,10 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, utc_now
 from tekes_quota_kit.models import Assignment, Base, Service, ServiceMember, Token, TokenItem, Usage
 
@@ -42,7 +41,7 @@ def configured(tmp_path, *, limit: int = 2, ttl: int | None = 3600):
     kit.put_service_member(TENANT, "measurement_session", "blood_pressure")
     kit.put_service_member(TENANT, "measurement_session", "blood_oxygen")
     kit.put_client("measurement-backend", CLIENT_KEY, TENANT, "measurement_session", "consumer")
-    return kit, TestClient(create_app(kit, ADMIN_KEY))
+    return kit, configured_client(kit, ADMIN_KEY)
 
 
 def headers():

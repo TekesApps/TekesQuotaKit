@@ -18,9 +18,11 @@ from . import __version__
 from .admin_auth import (
     COOKIE,
     SESSION_TTL,
+    AdminAccountError,
     AdminAccounts,
     cookie_path,
     cookie_secure,
+    require_admin_factory,
 )
 from .core import (
     MEMBERSHIP_ROLE,
@@ -242,6 +244,11 @@ class TenantRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=128)
+    new_password: str | None = Field(default=None, max_length=128)
+
+
+class OperatorStatus(BaseModel):
+    status: Literal["active", "disabled"]
 
 
 class ProvisionRequest(BaseModel):
@@ -386,7 +393,7 @@ def _client_guide(
         "Read the configuration below and implement only the permitted flow for this role.",
         "Move `client_key` into the trusted backend's secret store or environment.",
         "Never commit this file or key, echo it in logs, or expose it to a browser or miniapp.",
-        "Do not call admin APIs or use the Kit deployment's admin key or token secret.",
+        "Do not call admin APIs or use the Kit operator sessions or the deployment token secret.",
         "If this file is lost, ask an administrator to rotate the client; Kit stores only a hash.",
         "",
         *_user_id_rule(subject_id_definition),
@@ -487,7 +494,7 @@ def _client_guide(
             "",
             "Stop the business operation when Kit rejects admission or use.",
             "A balance query never grants permission. Never invent a subject ID or a use token.",
-            "This client uses only its client key. Admin key and token secret stay with Kit.",
+            "Use only your client key. Operator sessions and the token secret stay with Kit.",
             "",
         ]
     )
@@ -792,9 +799,11 @@ def _default_plan_guide(
     return "\n".join(lines)
 
 
-def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -> APIRouter:
+def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, authenticate) -> APIRouter:
     router = APIRouter()
-    authenticate = require_admin
+    require_admin = require_admin_factory(accounts)
+    security = require_admin_factory(accounts, "security_admin")
+    audit = require_admin_factory(accounts, "auditor")
 
     @router.get("/admin", response_class=HTMLResponse)
     def page() -> HTMLResponse:
@@ -824,7 +833,14 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         if request.headers.get("X-Admin-Request") != "1":
             raise HTTPException(status_code=403, detail="缺少请求保护头")
         path = cookie_path(request)
-        token = accounts.login(payload.username.strip(), payload.password)
+        try:
+            token = accounts.login(payload.username.strip(), payload.password, payload.new_password)
+        except AdminAccountError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        user = accounts.session_user(token)
+        if user is None:
+            # A security operator can revoke this session while login is completing.
+            raise HTTPException(401, "登录已失效，请重新登录")
         response.set_cookie(
             COOKIE,
             token,
@@ -835,7 +851,7 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
             samesite="strict",
         )
         response.headers.update(NO_STORE)
-        return {"data": {**accounts.session_user(token), "via": "session", "version": __version__}}
+        return {"data": {**user, "via": "session", "version": __version__}}
 
     @router.get("/v1/admin/session")
     # `require_admin` is a closure, which postponed annotations cannot resolve inside
@@ -850,10 +866,46 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         response: Response,
         user: dict = Depends(require_admin),  # noqa: B008
     ) -> dict:
-        if user["via"] == "session":
-            accounts.logout(request.cookies.get(COOKIE, ""))
+        token = (
+            request.headers["Authorization"].removeprefix("Bearer ")
+            if user["via"] == "bearer"
+            else request.cookies[COOKIE]
+        )
+        accounts.logout(token)
         response.delete_cookie(COOKIE, path=cookie_path(request))
         return {"data": {"status": "logged_out"}}
+
+    @router.get("/v1/admin/operators", dependencies=[Depends(security)])
+    def operators() -> dict:
+        return {"data": accounts.list()}
+
+    @router.post("/v1/admin/operators/{username}/revoke", dependencies=[Depends(security)])
+    def revoke(username: str) -> dict:
+        try:
+            accounts.revoke(username)
+        except AdminAccountError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"data": {"status": "revoked"}}
+
+    @router.put("/v1/admin/operators/{username}/status")
+    def operator_status(
+        username: str,
+        payload: OperatorStatus,
+        operator: dict = Depends(security),  # noqa: B008
+    ) -> dict:
+        try:
+            accounts.set_status(username, payload.status, actor=operator["username"])
+        except AdminAccountError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"data": {"status": payload.status}}
+
+    @router.get("/v1/admin/audit/operations", dependencies=[Depends(audit)])
+    def audit_operations() -> dict:
+        return {"data": accounts.operations()}
+
+    @router.get("/v1/admin/audit/sign-ins", dependencies=[Depends(audit)])
+    def audit_sign_ins() -> dict:
+        return {"data": accounts.audit_log()}
 
     @router.get("/v1/admin/tenants", dependencies=[Depends(authenticate)])
     def tenants() -> dict:
@@ -1041,9 +1093,9 @@ def create_admin_router(kit: QuotaKit, accounts: AdminAccounts, require_admin) -
         if config.role in {"default_catalog", "default_init"}:
             return _download(
                 client_id,
-            _default_plan_guide(
-                client_id, key, config.tenant_id, base, config.role, definition
-            ),
+                _default_plan_guide(
+                    client_id, key, config.tenant_id, base, config.role, definition
+                ),
             )
         if service is None:
             levels = _levels(kit, config.tenant_id)

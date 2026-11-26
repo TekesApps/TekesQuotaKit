@@ -17,7 +17,7 @@ from tekes_quota_kit.models import AdminSession, Base
 
 ADMIN_KEY = "admin-auth-management-key-for-tests-000001"
 TOKEN_SECRET = "admin-auth-token-secret-for-tests-0000001"
-PASSWORD = "correct horse battery"
+PASSWORD = "Horse!Battery17"
 GUARD = {"X-Admin-Request": "1"}
 
 
@@ -32,8 +32,10 @@ def env(tmp_path):
     kit = QuotaKit(f"sqlite:///{tmp_path / 'auth.db'}", TOKEN_SECRET)
     Base.metadata.create_all(kit.engine)
     accounts = AdminAccounts(kit)
-    accounts.create("ops", PASSWORD)
-    return kit, accounts, TestClient(create_app(kit, ADMIN_KEY))
+    accounts.create("ops", PASSWORD, "system_admin")
+    accounts.create("sec", PASSWORD, "security_admin")
+    accounts.create("review", PASSWORD, "auditor")
+    return kit, accounts, TestClient(create_app(kit))
 
 
 def login(client, username="ops", password=PASSWORD, headers=None):
@@ -107,24 +109,26 @@ def test_logout_revokes_the_session(env):
 def test_password_change_disable_and_expiry_end_sessions(env):
     kit, accounts, client = env
     login(client)
-    accounts.set_password("ops", "another long password")
+    accounts.set_password("ops", "Another-Long27")
     assert client.get("/v1/admin/session").status_code == 401
     assert login(client).status_code == 401
-    assert login(client, password="another long password").status_code == 200
+    assert login(client, password="Another-Long27").status_code == 200
     accounts.set_status("ops", "disabled")
     assert client.get("/v1/admin/session").status_code == 401
-    assert login(client, password="another long password").status_code == 401
+    assert login(client, password="Another-Long27").status_code == 401
     accounts.set_status("ops", "active")
-    login(client, password="another long password")
+    login(client, password="Another-Long27")
     with kit.sessions.begin() as db:
         db.execute(update(AdminSession).values(expires_at=utc_now() - timedelta(seconds=1)))
     assert client.get("/v1/admin/session").status_code == 401
 
 
-def test_admin_key_still_works_and_a_bad_bearer_is_not_rescued_by_cookie(env):
+def test_shared_admin_key_is_retired_and_a_bad_bearer_is_not_rescued_by_cookie(env):
     _kit, _accounts, client = env
     bearer = {"Authorization": f"Bearer {ADMIN_KEY}"}
-    assert client.get("/v1/admin/session", headers=bearer).json()["data"]["via"] == "admin_key"
+    assert client.get("/v1/admin/session", headers=bearer).status_code == 401
+    token = _accounts.login("ops", PASSWORD)
+    bearer = {"Authorization": f"Bearer {token}"}
     # Bearer callers are not browsers, so they need no guard header.
     assert client.put("/v1/admin/tenants/t/levels/l", json={}, headers=bearer).status_code == 200
     login(client)
@@ -137,12 +141,12 @@ def test_account_rules(tmp_path):
     Base.metadata.create_all(kit.engine)
     accounts = AdminAccounts(kit)
     with pytest.raises(AdminAccountError):
-        accounts.create("ops", "short")
+        accounts.create("ops", "short", "system_admin")
     with pytest.raises(AdminAccountError):
-        accounts.create("bad name", PASSWORD)
-    accounts.create("ops", PASSWORD)
+        accounts.create("bad name", PASSWORD, "system_admin")
+    accounts.create("ops", PASSWORD, "system_admin")
     with pytest.raises(AdminAccountError):
-        accounts.create("ops", PASSWORD)
+        accounts.create("ops", PASSWORD, "system_admin")
     with pytest.raises(AdminAccountError):
         accounts.set_password("missing", PASSWORD)
     stored = admin_auth.hash_password(PASSWORD)
@@ -166,15 +170,29 @@ def test_cli_manages_admin_users(tmp_path, monkeypatch, capsys):
         return exit_info.value.code, capsys.readouterr()
 
     code, out = cli(
-        "admin-user", "add", "--username", "ops", "--password-stdin", stdin=PASSWORD + "\n"
+        "admin-user",
+        "add",
+        "--role",
+        "system_admin",
+        "--username",
+        "ops",
+        "--password-stdin",
+        stdin=PASSWORD + "\n",
     )
     assert code == 0 and "Created admin user ops" in out.out
     code, out = cli(
-        "admin-user", "add", "--username", "ops", "--password-stdin", stdin=PASSWORD + "\n"
+        "admin-user",
+        "add",
+        "--role",
+        "system_admin",
+        "--username",
+        "ops",
+        "--password-stdin",
+        stdin=PASSWORD + "\n",
     )
     assert code == 1 and "already exists" in out.err
     code, out = cli("admin-user", "list")
-    assert code == 0 and out.out.startswith("ops\tactive\tlast login -")
+    assert code == 0 and out.out.startswith("system_admin\tops\tactive\tlast login -")
     code, out = cli("admin-user", "disable", "--username", "ops")
     assert code == 0 and "Disabled ops" in out.out
     code, out = cli("admin-user", "passwd", "--username", "ops", "--password-stdin", stdin="x\n")
@@ -232,3 +250,142 @@ def test_session_reports_the_installed_version(env):
     assert login(client).json()["data"]["version"] == declared
     assert client.get("/v1/admin/session").json()["data"]["version"] == declared
     assert client.get("/openapi.json").json()["info"]["version"] == declared
+
+
+@pytest.mark.parametrize(
+    "weak",
+    [
+        "Abcdef1!",
+        "abcdefghijk9!",
+        "ABCDEFGHIJK9!",
+        "Abcdefghijk!",
+        "Abcdefghijk9",
+        "Abcdefghijk9 ",
+        "Abc!SecureOPS42",
+        "Abcd!1234567" + "x" * 117,
+    ],
+)
+def test_creation_rotation_and_recovery_apply_the_same_policy(env, weak):
+    _kit, accounts, client = env
+    with pytest.raises(AdminAccountError):
+        accounts.create("op", weak, "system_admin")
+    with pytest.raises(AdminAccountError):
+        accounts.set_password("ops", weak)
+    assert client.post(
+        "/v1/admin/session/login",
+        headers=GUARD,
+        json={"username": "ops", "password": PASSWORD, "new_password": weak},
+    ).status_code in (400, 422)
+    assert login(client).status_code == 200
+
+
+def test_deadline_rotation_and_active_session_revocation(env, monkeypatch):
+    from sqlalchemy import select
+
+    from tekes_quota_kit.models import AdminUser
+
+    kit, accounts, client = env
+    with kit.sessions() as db:
+        start = db.scalar(select(AdminUser.password_changed_at).where(AdminUser.username == "ops"))
+    deadline = start + timedelta(days=90)
+    monkeypatch.setattr(admin_auth, "utc_now", lambda: deadline - timedelta(seconds=1))
+    assert login(client).json()["data"]["expires_at"] == deadline.isoformat() + "Z"
+    bearer = {"Authorization": "Bearer " + accounts.login("ops", PASSWORD)}
+    monkeypatch.setattr(admin_auth, "utc_now", lambda: deadline)
+    assert client.get("/v1/admin/tables", headers=bearer).status_code == 401
+    assert login(client).status_code == 403
+
+    def rotate(current, new):
+        return client.post(
+            "/v1/admin/session/login",
+            headers=GUARD,
+            json={"username": "ops", "password": current, "new_password": new},
+        )
+
+    assert rotate(PASSWORD, PASSWORD).status_code == 400
+    assert rotate("invalid", "Renewed!Private15").status_code == 401
+    assert rotate(PASSWORD, "Renewed!Private15").status_code == 200
+    assert client.get("/v1/admin/tables").status_code == 200
+    assert client.get("/v1/admin/tables", headers=bearer).status_code == 401
+    assert login(client).status_code == 401
+
+
+def test_roles_enforce_revoke_and_audit_operations(env):
+    _, accounts, client = env
+    accounts.check_roster()
+    system = {"Authorization": "Bearer " + accounts.login("ops", PASSWORD)}
+    security = {"Authorization": "Bearer " + accounts.login("sec", PASSWORD)}
+    auditor = {"Authorization": "Bearer " + accounts.login("review", PASSWORD)}
+    for headers in (auditor, security):
+        assert (
+            client.put("/v1/admin/tenants/test/levels/base", headers=headers, json={}).status_code
+            == 403
+        )
+    assert (
+        client.put("/v1/admin/tenants/test/levels/base", headers=system, json={}).status_code == 200
+    )
+    for headers in (auditor, system):
+        assert client.post("/v1/admin/operators/ops/revoke", headers=headers).status_code == 403
+    assert client.post("/v1/admin/operators/ops/revoke", headers=security).status_code == 200
+    assert client.get("/v1/admin/session", headers=system).status_code == 401
+    assert client.get("/v1/admin/audit/operations", headers=security).status_code == 403
+    rows = client.get("/v1/admin/audit/operations", headers=auditor).json()["data"]
+    assert any(
+        r["actor"] == "ops" and r["target"] == "test/base" and r["status"] == 200 for r in rows
+    )
+    assert any(r["actor"] == "sec" and "revoke" in r["operation"] for r in rows)
+    for headers in (security, auditor):
+        res = client.put(
+            "/v1/admin/operators/ops/status", json={"status": "disabled"}, headers=headers
+        )
+        assert res.status_code == (200 if headers is security else 403)
+    with pytest.raises(AdminAccountError, match="system_admin"):
+        accounts.check_roster()
+    assert client.get("/v1/admin/audit/sign-ins", headers=auditor).status_code == 200
+
+
+def test_sqlite_upgrade_requires_named_enrollment_and_rejects_old_sessions(tmp_path):
+    import sqlite3
+    from pathlib import Path
+
+    database = tmp_path / "legacy.db"
+    old = admin_auth.hash_password(PASSWORD)
+    assert admin_auth.hash_password(PASSWORD) != old
+    now = utc_now()
+    with sqlite3.connect(database) as db:
+        db.executescript("""
+            CREATE TABLE tq_admin_users (
+                id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, status TEXT,
+                created_at DATETIME, updated_at DATETIME,last_login_at DATETIME);
+            CREATE TABLE tq_admin_sessions (
+                id INTEGER PRIMARY KEY, token_hash TEXT,admin_user_id INTEGER,
+                created_at DATETIME, expires_at DATETIME, revoked_at DATETIME);
+            CREATE TABLE tq_admin_login_attempts (
+                id INTEGER PRIMARY KEY, username TEXT, success BOOLEAN, attempted_at DATETIME);
+            """)
+        db.execute(
+            "INSERT INTO tq_admin_users VALUES (1,'legacy',?,'active',?,?,NULL)",
+            (old, now.isoformat(), now.isoformat()),
+        )
+        db.execute(
+            "INSERT INTO tq_admin_sessions VALUES (1,?,1,?,?,NULL)",
+            (
+                admin_auth._token_hash("old-session"),
+                now.isoformat(),
+                (now + timedelta(hours=12)).isoformat(),
+            ),
+        )
+        migration = (
+            Path(__file__).resolve().parents[1] / "migrations/add_operator_security_sqlite.sql"
+        )
+        db.executescript(migration.read_text())
+    kit = QuotaKit(f"sqlite:///{database}", TOKEN_SECRET)
+    accounts = AdminAccounts(kit)
+    client = TestClient(create_app(kit))
+    assert login(client, "legacy").status_code == 401
+    assert accounts.session_user("old-session") is None
+    with pytest.raises(AdminAccountError):
+        accounts.set_password("legacy", PASSWORD, enroll_role="auditor")
+    accounts.set_password("legacy", "Fresh!Secret27", enroll_role="auditor")
+    assert login(client, "legacy", "Fresh!Secret27").json()["data"]["role"] == "auditor"
+    assert accounts.session_user("old-session") is None

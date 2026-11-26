@@ -4,19 +4,30 @@ Usage: python admin-web/e2e/serve.py <sqlite-path> <port>
 """
 
 import sys
+from datetime import timedelta
 
 import uvicorn
+from sqlalchemy import update
 
 from tekes_quota_kit.admin_auth import AdminAccounts
 from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, _period, utc_now
-from tekes_quota_kit.models import Base, Tenant, Usage
+from tekes_quota_kit.models import AdminUser, Base, Tenant, Usage
 
 TENANT = "e2e-business"
 kit = QuotaKit(f"sqlite:///{sys.argv[1]}", "e2e-token-secret-0000000000000000000000")
 Base.metadata.create_all(kit.engine)
-AdminAccounts(kit).create("e2e", "e2e-console-password")
+accounts = AdminAccounts(kit)
+accounts.create("e2e", "Console-Run42!", "system_admin")
+accounts.create("security", "Console-Test43!", "security_admin")
+accounts.create("review", "Console-Test44!", "auditor")
+accounts.create("expired-fixture", "Fixture-Rotate45!", "auditor")
 with kit.sessions.begin() as db:
+    db.execute(
+        update(AdminUser)
+        .where(AdminUser.username == "expired-fixture")
+        .values(password_changed_at=utc_now() - timedelta(days=90))
+    )
     db.add(Tenant(tenant_id=TENANT, name="端到端测试", created_at=utc_now(), updated_at=utc_now()))
 kit.put_quota(TENANT, "visits", "use", "per_use")
 kit.put_level(TENANT, "basic")
@@ -59,7 +70,7 @@ for subject, level, cap, used in [
                 used_units=used,
             )
         )
-inner = create_app(kit, "e2e-admin-key-000000000000000000000000000")
+inner = create_app(kit)
 PREFIX = "/user-quota"
 
 

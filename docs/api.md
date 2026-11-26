@@ -10,11 +10,11 @@ A **tenant** groups all configuration. A **Quota** is a counter definition (`uni
 
 ## Authentication
 
-Consumer routes take `Authorization: Bearer <client key>`. Admin routes accept either the admin key as a Bearer credential, for scripts, or a web admin session cookie, for the browser console.
+Consumer routes take `Authorization: Bearer <client key>`. Admin routes accept an individual operator session through its cookie or as a short-lived Bearer token.
 
 | Credential | Used for | Rules |
 | --- | --- | --- |
-| Admin key | `/v1/admin/...` routes | Set by `TEKES_QUOTA_ADMIN_KEY`. Must be at least 32 characters or the server refuses to start. Compared with `hmac.compare_digest`. If an `Authorization` header is present it must be valid; a session cookie does not rescue a wrong Bearer key. |
+| Named session Bearer | Admin routes | Scripts may use the value of the individual login session cookie as Bearer. The same role, expiry and revocation apply. |
 | Web admin session | `/v1/admin/...` routes | `tq_admin_session` cookie set by `POST /v1/admin/session/login`. See [Web admin sessions](#web-admin-sessions). |
 | Client key | Consumer routes (`/v1/redeem`, `/v1/token`, ...) | Created with `PUT /v1/admin/clients/{client_id}` (you supply the key, at least 32 characters) or `POST /v1/admin/clients/{client_id}/provision` (the server generates it). Only a SHA-256 hash is stored. |
 
@@ -120,7 +120,7 @@ Errors raised by the HTTP layer use FastAPI's default shape `{"detail": ...}`:
 
 | Status | When |
 | --- | --- |
-| 401 | Missing `Authorization` header, missing `Bearer ` prefix, or wrong admin key (`{"detail": "Bearer credential required"}` or `{"detail": "Invalid admin credential"}`). An invalid client key returns the `QuotaError` body with code `unauthorized`. |
+| 401 | Missing `Authorization` header, missing `Bearer ` prefix, or invalid session (`{"detail": "Bearer credential required"}` or `{"detail": "Invalid admin credential"}`). An invalid client key returns the `QuotaError` body with code `unauthorized`. |
 | 400 | `POST /v1/redeem` with both or neither of `service_id` / `service_code`; `PUT /v1/admin/clients/{client_id}` whose path and body `client_id` differ; provision with an unsafe code or invalid `base_url`. |
 | 404 | Unknown table in `GET /v1/admin/tables/{name}`. |
 | 422 | Request validation failure (wrong type, out-of-range value, missing field, bad `X-Subject-ID`). `detail` is FastAPI's list of validation errors. |
@@ -230,7 +230,7 @@ The table lists every code raised in `core.py`. Several 400 codes are normally p
 | GET | `/docs` | none | OpenAPI UI (FastAPI default). |
 | GET | `/openapi.json` | none | OpenAPI schema (FastAPI default). |
 
-The console page and its assets are served without authentication. The page has `Cache-Control: no-store` and a Content Security Policy that allows only same-origin scripts and connections. Hashed assets are cached as immutable. All data comes from the admin API, which requires a session or the admin key.
+The console page and its assets are served without authentication. The page has `Cache-Control: no-store` and a Content Security Policy that allows only same-origin scripts and connections. Hashed assets are cached as immutable. All data comes from the admin API, which requires a named session.
 
 ## Web admin sessions
 
@@ -250,6 +250,10 @@ On success the response sets `tq_admin_session` with `HttpOnly`, `SameSite=Stric
 | 401 | Wrong username or password, or a disabled account. Unknown usernames take as long as known ones. |
 | 429 | 5 failed sign-ins for this username in the last 15 minutes. |
 | 400 | `X-Admin-Base` is not a plain path prefix. |
+
+A valid current password can be rotated by including **new_password** in the login payload. An expired credential receives 403 until rotation succeeds. A new session lasts at most 12 hours and ends by the 90-day password deadline. The response includes the operator's single role.
+
+System administrators use the tenant, table and configuration routes. Security administrators use GET /v1/admin/operators, PUT /v1/admin/operators/{username}/status (active or disabled), and POST /v1/admin/operators/{username}/revoke. Auditors use GET /v1/admin/audit/operations and GET /v1/admin/audit/sign-ins. A valid session used outside its role receives 403.
 
 Sessions end at expiry, on `POST /v1/admin/session/logout`, or when `admin-user passwd` or `admin-user disable` runs for the account. Passwords are stored as PBKDF2-SHA256 with 600,000 rounds.
 
@@ -505,7 +509,7 @@ Body `{"items": [...]}` with 1 to 500 items, each `{"subject_id", "level_code", 
 
 ## Admin configuration endpoints
 
-All routes in this section require the admin key. Each `PUT` is an upsert and is safe to repeat with the same body.
+All routes in this section require a system administrator session. Each `PUT` is an upsert and is safe to repeat with the same body.
 
 ### PUT /v1/admin/clients/{client_id}
 
@@ -624,7 +628,7 @@ Example:
 
 ```sh
 curl -sS -X PUT http://127.0.0.1:9460/v1/admin/tenants/demo-tenant/subjects/42/level \
-  -H "Authorization: Bearer $TEKES_QUOTA_ADMIN_KEY" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPERATOR_SESSION" -H "Content-Type: application/json" \
   -d '{"level_code": "plus", "expires_at": "2026-11-08T00:00:00Z", "renew_term": true}'
 ```
 
@@ -669,7 +673,7 @@ The response is a Markdown file (`Content-Type: text/markdown; charset=utf-8`, `
 
 ## Flows
 
-Setup shared by all flows (admin key):
+Setup shared by all flows (system administrator session):
 
 1. `PUT /v1/admin/tenants/demo-tenant/quotas/{quota_code}`
 2. `PUT /v1/admin/tenants/demo-tenant/levels/basic`

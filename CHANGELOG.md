@@ -8,6 +8,10 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+### Changed
+- The administration console and API use named system administrators, security administrators and read-only auditors. Scripts authenticate with an individual session. The shared deployment admin key is retired.
+- Operator passwords require 12–128 characters, all four character classes and rotation within 90 days. Existing deployments must migrate their admin tables and enroll their operators. See [deployment instructions](docs/deployment.md#web-admin-accounts).
+
 ## [0.18.5] - 2026-11-10
 
 ### Changed

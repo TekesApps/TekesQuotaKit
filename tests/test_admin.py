@@ -6,10 +6,9 @@ from datetime import timedelta
 from urllib.parse import urljoin, urlparse
 
 import pytest
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaError, QuotaKit, utc_now
 from tekes_quota_kit.main import run
 from tekes_quota_kit.models import Base, Client
@@ -31,7 +30,7 @@ def setup(tmp_path):
     )
     kit.put_service(TENANT, "blood_pressure", None)
     kit.put_service_member(TENANT, "measurement_session", "blood_pressure")
-    return kit, TestClient(create_app(kit, ADMIN_KEY))
+    return kit, configured_client(kit, ADMIN_KEY)
 
 
 def admin_headers():
@@ -217,7 +216,6 @@ def test_generate_secrets_needs_no_database(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["tekes-quota-kit", "generate-secrets"])
     run()
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 2
+    assert len(lines) == 1
     assert all(len(line.split("=", 1)[1]) >= 32 for line in lines)
-    assert lines[0].startswith("TEKES_QUOTA_ADMIN_KEY=")
-    assert lines[1].startswith("TEKES_QUOTA_TOKEN_SECRET=")
+    assert lines[0].startswith("TEKES_QUOTA_TOKEN_SECRET=")

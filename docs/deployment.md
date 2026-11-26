@@ -30,17 +30,16 @@ The CLI reads configuration from environment variables only. It does not load `.
 | --- | --- | --- | --- |
 | `TEKES_QUOTA_DATABASE_URL` | `serve`, `init-schema`, `expire-sessions` | none | SQLAlchemy URL. Must start with `mysql+pymysql://` (or `sqlite:///` for tests). Example: `mysql+pymysql://user:password@127.0.0.1:3306/your_app?charset=utf8mb4`. |
 | `TEKES_QUOTA_TOKEN_SECRET` | `serve`, `init-schema`, `expire-sessions` | none | HMAC secret used to derive tokens. At least 32 characters, otherwise startup fails with `weak_secret`. Must stay stable (see below). |
-| `TEKES_QUOTA_ADMIN_KEY` | `serve` | none | Bearer key for the admin API and admin UI. At least 32 characters, otherwise `serve` refuses to start. |
 | `TEKES_QUOTA_HOST` | `serve` | `127.0.0.1` | Bind address. |
 | `TEKES_QUOTA_PORT` | `serve` | `9460` | Bind port. |
 
-Generate both secrets once:
+Generate the token secret once:
 
 ```sh
 uv run tekes-quota-kit generate-secrets
 ```
 
-This prints `TEKES_QUOTA_ADMIN_KEY=...` and `TEKES_QUOTA_TOKEN_SECRET=...`, each 64 URL-safe characters. It needs no other configuration and does not touch the database.
+This prints `TEKES_QUOTA_TOKEN_SECRET=...` with 64 URL-safe characters. It needs no other configuration and does not touch the database.
 
 Client keys (created through the admin API) must also be at least 32 characters; provisioned keys are generated with the same length as above.
 
@@ -111,13 +110,21 @@ memberships. Existing service accounting may still be settled/refunded/closed.
 
 ### Web admin accounts
 
-The console has no sign-up. Create accounts on the server, with the same environment as `serve`:
+For an existing admin schema, back up the database, stop all old service instances and run the matching migrations/add_operator_security_mysql.sql or migrations/add_operator_security_sqlite.sql once before starting the new code. MySQL DDL commits each statement. If interrupted, inspect which columns and table exist and complete the remaining statements. Remove the old shared deployment key from service and script environments. Existing sessions are revoked. Historical account ages and roles are unknown, so those accounts require explicit enrollment.
 
-```bash
-tekes-quota-kit admin-user add --username alice
+Identify three different people and assign each one role. Set the variables below to individual usernames and have each operator supply a private password at the prompt. Run on the trusted host with the database environment set. Use **enroll** in place of **add** for pre-upgrade accounts, with a different password.
+
+```sh
+# Set each variable to a different actual operator's username.
+tekes-quota-kit admin-user add --role system_admin --username "${SYSTEM_OPERATOR:?}"
+tekes-quota-kit admin-user add --role security_admin --username "${SECURITY_OPERATOR:?}"
+tekes-quota-kit admin-user add --role auditor --username "${AUDIT_OPERATOR:?}"
+tekes-quota-kit admin-user check
 ```
 
-It prompts twice for a password of at least 12 characters. For automation, pass `--password-stdin` and write one line to standard input. `admin-user passwd`, `disable`, `enable`, and `list` manage existing accounts; `passwd` and `disable` sign the account out everywhere.
+System administrators manage quota and integration configuration. Security administrators manage operator status and revoke sessions. Auditors read the latest 200 sign-in and management records. Management events omit request bodies, credentials and responses. CLI identity recovery is trusted host maintenance. Restrict database credentials and host access accordingly.
+
+Passwords require 12–128 characters, uppercase/lowercase ASCII letters, a digit and punctuation. They must exclude the username ignoring case and differ from the current password. Password changes revoke all old sessions. Each operator can rotate through **更改密码** at login, including on day 90 when the current password expires. Host recovery uses **admin-user passwd --username NAME**. For automated provisioning, supply the secret over **--password-stdin**. Run **admin-user check** after provisioning and role turnover. If one role becomes vacant, other operators retain access while the host administrator restores coverage.
 
 ## Running in production
 
@@ -129,7 +136,6 @@ It prompts twice for a password of at least 12 characters. For automation, pass 
 
 ```ini
 TEKES_QUOTA_DATABASE_URL=mysql+pymysql://tq:change-me@127.0.0.1:3306/your_app?charset=utf8mb4
-TEKES_QUOTA_ADMIN_KEY=...
 TEKES_QUOTA_TOKEN_SECRET=...
 TEKES_QUOTA_HOST=127.0.0.1
 TEKES_QUOTA_PORT=9460
@@ -210,7 +216,7 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Real-IP $remote_addr;
 ```
 
-The `allow`/`deny` lines are optional. The console requires a signed-in account and locks a username for 15 minutes after 5 failed sign-ins, but nothing limits how often the admin key itself can be tried. If you publish the admin API without an allowlist, add a per-IP `limit_req` on `/user-quota/v1/admin/`. Size it for the console: one page change makes about ten admin API calls, so allow at least 120 requests per minute with a burst of 60.
+The `allow`/`deny` lines are optional. The console requires a signed-in account and locks a username for 15 minutes after 5 failed sign-ins. If you publish the admin API without an allowlist, add a per-IP `limit_req` on `/user-quota/v1/admin/`. Size it for the console: one page change makes about ten admin API calls, so allow at least 120 requests per minute with a burst of 60.
 
 ### Container
 
@@ -344,7 +350,6 @@ After a restore, check that every table is back: `SHOW TABLES LIKE 'tq\_%'` shou
 
 | Secret | How to rotate | Effect |
 | --- | --- | --- |
-| Admin key | Change `TEKES_QUOTA_ADMIN_KEY` and restart `serve`. | Old key stops working after restart for scripts. Console sessions are unaffected. |
 | Console password | `tekes-quota-kit admin-user passwd --username NAME`. | The account's sessions end immediately. |
 | Client key | `POST /v1/admin/clients/{client_id}/provision` with `"rotate": true` (or `PUT /v1/admin/clients/{client_id}` with a new key). | The new key replaces the stored hash in one transaction; the old key is rejected immediately. The client backend gets 401 until it is updated with the new key. Tokens already issued stay valid because they are bound to `client_id`, not to the key. |
 | Token secret | Not rotatable. | See "Why the token secret must stay stable". |
@@ -353,7 +358,7 @@ After a restore, check that every table is back: `SHOW TABLES LIKE 'tq\_%'` shou
 
 - Keep `serve` bound to `127.0.0.1` (or a private container network) and expose it only through a TLS proxy.
 - Prefer restricting `/admin` and `/v1/admin/...` to a VPN or internal network at the proxy. If the console must be public, keep it on HTTPS so the session cookie is `Secure`, give each operator their own account, and rate limit the admin API per IP as described above.
-- Store `TEKES_QUOTA_ADMIN_KEY`, `TEKES_QUOTA_TOKEN_SECRET`, and the database password in a secret store or a root-readable environment file, never in the repository or image.
+- Store `TEKES_QUOTA_TOKEN_SECRET` and the database password in a secret store or a root-readable environment file, never in the repository or image.
 - Client keys belong to trusted backends only. Never ship a client key to a browser, mobile app, or miniapp.
 - Only trusted backends set `subject_id` and `X-Subject-ID`, taken from their own authenticated session. Never forward a subject ID supplied by an end user.
 - The provision endpoint returns a Markdown contract containing the plaintext client key. Move the key into the backend's secret store, then delete the file or keep it outside version control. Do not commit it.
