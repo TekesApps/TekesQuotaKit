@@ -392,7 +392,7 @@ def test_sqlite_upgrade_requires_named_enrollment_and_rejects_old_sessions(tmp_p
 
 
 def test_bootstrap_requires_rotation_and_preserves_existing_accounts(tmp_path, monkeypatch):
-    from tekes_quota_kit.admin_auth import BOOTSTRAP_TTL, ROLES
+    from tekes_quota_kit.admin_auth import ROLES
     from tekes_quota_kit.operator_bootstrap import bootstrap
 
     kit = QuotaKit(f"sqlite:///{tmp_path / 'bootstrap.db'}", TOKEN_SECRET)
@@ -434,9 +434,11 @@ def test_bootstrap_requires_rotation_and_preserves_existing_accounts(tmp_path, m
     assert not directory.exists()
     assert login(client, "system_admin", PASSWORD).status_code == 200
     assert rotate("auditor").status_code == 401
-    monkeypatch.setattr(admin_auth, "utc_now", lambda: utc_now() + BOOTSTRAP_TTL)
-    assert rotate("security_admin").status_code == 403
-    accounts.set_password("security_admin", PASSWORD)
+    monkeypatch.setattr(admin_auth, "utc_now", lambda: utc_now() + timedelta(days=92))
+    with pytest.raises(AdminAccountError, match="Awaiting initial password change: security_admin"):
+        accounts.check_roster()
+    assert login(client, "security_admin", passwords["security_admin"]).status_code == 403
+    assert rotate("security_admin").status_code == 200
     assert login(client, "security_admin", PASSWORD).status_code == 200
 
 
@@ -480,3 +482,25 @@ def test_bootstrap_provisions_missing_names_only(env, tmp_path):
         "system_admin": "active",
         "security_admin": "active",
     }
+
+
+def test_bootstrap_keeps_handoffs_when_commit_acknowledgement_is_lost(env, tmp_path):
+    from sqlalchemy import event
+
+    from tekes_quota_kit.admin_auth import ROLES
+    from tekes_quota_kit.operator_bootstrap import bootstrap
+
+    kit, accounts, client = env
+    directory = tmp_path / "handoff"
+
+    def lose_acknowledgement(session):
+        raise ConnectionError("commit acknowledgement lost")
+
+    event.listen(kit.sessions, "after_commit", lose_acknowledgement, once=True)
+    with pytest.raises(ConnectionError, match="acknowledgement lost"):
+        bootstrap(accounts, directory)
+
+    assert bootstrap(accounts, directory) == []
+    for role in ROLES:
+        password = (directory / f"{role}.txt").read_text().strip()
+        assert login(client, role, password).status_code == 403

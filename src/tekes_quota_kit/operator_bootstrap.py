@@ -35,7 +35,7 @@ def _temporary_password(role: str) -> str:
 
 def bootstrap(accounts: AdminAccounts, directory: Path) -> list[str]:
     created = []
-    # Roll back this run's files if an insert, file write, or database commit fails.
+    # Remove incomplete handoffs on file-write or insert failure.
     with ExitStack() as rollback, accounts.kit.sessions.begin() as db:
         users = db.scalars(
             select(AdminUser).where(func.lower(AdminUser.username).in_(ROLES)).with_for_update()
@@ -91,6 +91,8 @@ def bootstrap(accounts: AdminAccounts, directory: Path) -> list[str]:
             )
             accounts._record(db, f"host:{getpass.getuser()}", "bootstrap", role)
             created.append(role)
-        db.commit()
+        db.flush()
+        # Commit can succeed on the server even if its acknowledgement is lost.
+        # Keep the completed handoffs once the transaction is ready to commit.
         rollback.pop_all()
     return created

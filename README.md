@@ -76,7 +76,7 @@ set -a; source .env; set +a
 uv run tekes-quota-kit serve
 ```
 
-Privately deliver each `<username>.txt` to its assigned operator and remove the delivered copy. Open `http://127.0.0.1:9460/admin` and choose **更改密码** within 24 hours to activate each account. Use `tekes-quota-kit admin-user check` to verify readiness. Open `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
+Privately deliver each `<username>.txt` to its assigned operator and remove the delivered copy. Open `http://127.0.0.1:9460/admin` and choose **更改密码** to activate each account. Use `tekes-quota-kit admin-user check` to verify readiness. Open `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
 
 TekesQuotaKit creates only `tq_` tables, so it can share your application's existing schema; a separate database is optional. It never creates, alters, or owns your application's user table: `subject_id` is your existing numeric user ID. `init-schema` creates missing `tq_` tables only. It does not create the database, alter existing tables, or seed data. For a reviewed fresh MySQL install, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. Installs created before 0.2.0 must apply [migrations/add_composite_services_mysql.sql](migrations/add_composite_services_mysql.sql) once, after a backup; `init-schema` will not perform that upgrade. Upgrading a 0.2.x install to web admin accounts only adds tables: run `init-schema` or apply [migrations/add_admin_accounts_mysql.sql](migrations/add_admin_accounts_mysql.sql). Existing admin schemas require the [operator security upgrade](docs/deployment.md#web-admin-accounts). Never run both fresh creation methods on the same schema.
 
