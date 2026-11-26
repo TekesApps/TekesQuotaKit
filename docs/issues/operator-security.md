@@ -11,3 +11,11 @@ The implementation covers the host account CLI, API authentication and authoriza
 * TypeScript type checking and Vite production build passed. All 23 Chromium scenarios passed, including expired-password rotation, the read-only audit view, operator session revocation and existing quota administration workflows.
 * A final login-response check handles expiry or concurrent revocation before the cookie is sent. The 29 focused HTTP administration and authentication tests passed after this change. The generated integration-guide wording received an additional administration test run. Ruff, git diff --check, source distribution and wheel builds passed.
 * All verification used disposable identities and local data. Deployment, real identity assignment, and production checks require an authorized operator with the three actual account holders. No production credentials were accessed or issued.
+
+## Deployment bootstrap follow-up
+
+Provide a repeatable deployment command that provisions the three role-named accounts with independent random, one-use passwords and private per-role handoffs. Verify first-use rotation, expiry, mixed existing rosters, disabled accounts, conflicts and repeat deployment on disposable data.
+
+Verification on 2026-11-26 used a disposable, socket-only MySQL 8.0.46 instance. The production installer created three independent credentials. All three HTTP logins required password replacement and rejected reuse of the temporary password. The installer output contained none of the generated passwords. The roster check passed after rotation. A second installation after deleting the delivered files and directory preserved all accounts and issued no further credentials.
+
+All 210 Python tests passed, including MySQL integration and focused regressions for mixed rosters, account conflicts, file collisions, private directory permissions, disabled accounts, initial credential expiry and host recovery. Ruff, shell syntax and the whitespace check passed. Chromium was not rerun for this follow-up. The login UI is unchanged. No production deployment or remote PR.

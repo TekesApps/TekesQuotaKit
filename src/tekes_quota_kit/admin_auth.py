@@ -22,6 +22,8 @@ THROTTLE_WINDOW = timedelta(minutes=15)
 THROTTLE_FAILURES = 5
 PBKDF2_ROUNDS = 600_000
 MIN_PASSWORD_LENGTH = 12
+BOOTSTRAP_HASH_PREFIX = "initial$"
+BOOTSTRAP_TTL = timedelta(hours=24)
 PASSWORD_AGE = timedelta(days=90)
 ROLES = ("system_admin", "security_admin", "auditor")
 USERNAME = re.compile(r"^[A-Za-z0-9._@-]{1,100}$")
@@ -39,7 +41,7 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, encoded: str) -> bool:
     try:
-        algorithm, rounds, salt, expected = encoded.split("$")
+        algorithm, rounds, salt, expected = encoded.removeprefix(BOOTSTRAP_HASH_PREFIX).split("$")
     except ValueError:
         return False
     if algorithm != "pbkdf2_sha256":
@@ -196,20 +198,31 @@ class AdminAccounts:
 
     def check_roster(self) -> None:
         with self.kit.sessions() as db:
-            active = set(
-                db.scalars(
-                    select(AdminUser.role).where(
-                        AdminUser.status == "active",
-                        AdminUser.role.in_(ROLES),
-                        AdminUser.password_changed_at > utc_now() - PASSWORD_AGE,
-                    )
-                )
-            )
-        missing = sorted(set(ROLES) - active)
+            rows = db.execute(
+                select(
+                    AdminUser.role,
+                    AdminUser.password_changed_at,
+                    AdminUser.created_at,
+                    AdminUser.password_hash.startswith(BOOTSTRAP_HASH_PREFIX),
+                ).where(AdminUser.status == "active", AdminUser.role.in_(ROLES))
+            ).all()
+        now = utc_now()
+        current = {role for role, changed, _, _ in rows if changed and changed > now - PASSWORD_AGE}
+        pending = {
+            role
+            for role, _, created, temporary in rows
+            if temporary and created + BOOTSTRAP_TTL > now
+        } - current
+        missing = set(ROLES) - current - pending
+        problems = []
         if missing:
-            raise AdminAccountError(
-                "Missing active operator with current password: " + ", ".join(missing)
+            problems.append(
+                "Missing active operator with current password: " + ", ".join(sorted(missing))
             )
+        if pending:
+            problems.append("Awaiting initial password change: " + ", ".join(sorted(pending)))
+        if problems:
+            raise AdminAccountError("; ".join(problems))
 
     def audit_log(self) -> list[dict]:
         with self.kit.sessions() as db:
@@ -255,15 +268,22 @@ class AdminAccounts:
                     AdminUser.username == username,
                     AdminUser.status == "active",
                     AdminUser.role.in_(ROLES),
-                    AdminUser.password_changed_at.is_not(None),
                 )
                 .with_for_update()
             )
             valid = verify_password(password, user.password_hash if user else _DUMMY_HASH)
-            ok = bool(valid and user)
+            temporary = bool(user and user.password_hash.startswith(BOOTSTRAP_HASH_PREFIX))
+            ok = bool(valid and user and (user.password_changed_at or temporary))
             attempt = AdminLoginAttempt(username=username, success=False, attempted_at=now)
             db.add(attempt)
             if ok:
+                if temporary:
+                    if now >= user.created_at + BOOTSTRAP_TTL:
+                        db.commit()
+                        raise HTTPException(403, "初始密码已到期，请联系部署管理员恢复账号")
+                    if new_password is None:
+                        db.commit()
+                        raise HTTPException(403, "首次登录请设置新密码")
                 if new_password is not None:
                     self._replace_password(db, user, new_password)
                     self._record(db, user.username, "rotate password", user.username)

@@ -389,3 +389,94 @@ def test_sqlite_upgrade_requires_named_enrollment_and_rejects_old_sessions(tmp_p
     accounts.set_password("legacy", "Fresh!Secret27", enroll_role="auditor")
     assert login(client, "legacy", "Fresh!Secret27").json()["data"]["role"] == "auditor"
     assert accounts.session_user("old-session") is None
+
+
+def test_bootstrap_requires_rotation_and_preserves_existing_accounts(tmp_path, monkeypatch):
+    from tekes_quota_kit.admin_auth import BOOTSTRAP_TTL, ROLES
+    from tekes_quota_kit.operator_bootstrap import bootstrap
+
+    kit = QuotaKit(f"sqlite:///{tmp_path / 'bootstrap.db'}", TOKEN_SECRET)
+    Base.metadata.create_all(kit.engine)
+    accounts = AdminAccounts(kit)
+    directory = tmp_path / "handoff"
+    assert bootstrap(accounts, directory) == list(ROLES)
+    client = TestClient(create_app(kit))
+    passwords = {role: (directory / f"{role}.txt").read_text().strip() for role in ROLES}
+    assert len(set(passwords.values())) == 3
+    assert directory.stat().st_mode & 0o777 == 0o700
+    for role, password in passwords.items():
+        assert len(password) >= 24
+        assert (directory / f"{role}.txt").stat().st_mode & 0o777 == 0o600
+        assert login(client, role, password).status_code == 403
+        assert client.get("/v1/admin/session").status_code == 401
+
+    with pytest.raises(AdminAccountError, match="Awaiting initial password change"):
+        accounts.check_roster()
+
+    def rotate(role):
+        return client.post(
+            "/v1/admin/session/login",
+            json={
+                "username": role,
+                "password": passwords[role],
+                "new_password": PASSWORD,
+            },
+            headers=GUARD,
+        )
+
+    assert rotate("system_admin").json()["data"]["role"] == "system_admin"
+    assert login(client, "system_admin", passwords["system_admin"]).status_code == 401
+    accounts.set_status("auditor", "disabled")
+    for path in directory.iterdir():
+        path.unlink()
+    directory.rmdir()
+    assert bootstrap(accounts, directory) == []
+    assert not directory.exists()
+    assert login(client, "system_admin", PASSWORD).status_code == 200
+    assert rotate("auditor").status_code == 401
+    monkeypatch.setattr(admin_auth, "utc_now", lambda: utc_now() + BOOTSTRAP_TTL)
+    assert rotate("security_admin").status_code == 403
+    accounts.set_password("security_admin", PASSWORD)
+    assert login(client, "security_admin", PASSWORD).status_code == 200
+
+
+def test_bootstrap_conflict_and_failed_delivery_are_atomic(env, tmp_path):
+    from tekes_quota_kit.operator_bootstrap import bootstrap
+
+    _kit, accounts, _client = env
+    directory = tmp_path / "handoff"
+    directory.mkdir(mode=0o700)
+    stale = directory / "auditor.txt"
+    stale.write_text("existing delivery")
+    with pytest.raises(AdminAccountError, match="Credential file already exists"):
+        bootstrap(accounts, directory)
+    assert list(directory.iterdir()) == [stale]
+    assert stale.read_text() == "existing delivery"
+    assert {u["username"] for u in accounts.list()} == {"sec", "ops", "review"}
+    accounts.create("auditor", PASSWORD, "system_admin")
+    with pytest.raises(AdminAccountError, match="conflicts with role name auditor"):
+        bootstrap(accounts, directory)
+    assert {u["username"] for u in accounts.list()} == {"sec", "ops", "review", "auditor"}
+
+
+def test_bootstrap_provisions_missing_names_only(env, tmp_path):
+    from tekes_quota_kit.operator_bootstrap import bootstrap
+
+    _kit, accounts, _client = env
+    accounts.create("auditor", PASSWORD, "auditor")
+    accounts.set_status("auditor", "disabled")
+    directory = tmp_path / "handoff"
+    directory.mkdir(mode=0o755)
+    with pytest.raises(AdminAccountError, match="0700"):
+        bootstrap(accounts, directory)
+    directory.chmod(0o700)
+    assert bootstrap(accounts, directory) == ["system_admin", "security_admin"]
+    assert not (directory / "auditor.txt").exists()
+    assert {u["username"]: u["status"] for u in accounts.list()} == {
+        "ops": "active",
+        "sec": "active",
+        "review": "active",
+        "auditor": "disabled",
+        "system_admin": "active",
+        "security_admin": "active",
+    }

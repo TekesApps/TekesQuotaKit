@@ -72,16 +72,11 @@ cp .env.example .env
 uv run tekes-quota-kit generate-secrets   # paste the value into .env
 # Set TEKES_QUOTA_DATABASE_URL in .env, then export the variables:
 set -a; source .env; set +a
-uv run tekes-quota-kit init-schema
-# Set each variable to a different actual operator's username.
-uv run tekes-quota-kit admin-user add --role system_admin --username "${SYSTEM_OPERATOR:?}"
-uv run tekes-quota-kit admin-user add --role security_admin --username "${SECURITY_OPERATOR:?}"
-uv run tekes-quota-kit admin-user add --role auditor --username "${AUDIT_OPERATOR:?}"
-uv run tekes-quota-kit admin-user check
+./scripts/install.sh "$HOME/.tekes-quota-credentials"
 uv run tekes-quota-kit serve
 ```
 
-Open `http://127.0.0.1:9460/admin` and sign in for the web admin, and `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
+Privately deliver each `<username>.txt` to its assigned operator and remove the delivered copy. Open `http://127.0.0.1:9460/admin` and choose **更改密码** within 24 hours to activate each account. Use `tekes-quota-kit admin-user check` to verify readiness. Open `http://127.0.0.1:9460/docs` for the interactive OpenAPI page.
 
 TekesQuotaKit creates only `tq_` tables, so it can share your application's existing schema; a separate database is optional. It never creates, alters, or owns your application's user table: `subject_id` is your existing numeric user ID. `init-schema` creates missing `tq_` tables only. It does not create the database, alter existing tables, or seed data. For a reviewed fresh MySQL install, [migrations/create_tables_mysql.sql](migrations/create_tables_mysql.sql) contains the explicit DDL. Installs created before 0.2.0 must apply [migrations/add_composite_services_mysql.sql](migrations/add_composite_services_mysql.sql) once, after a backup; `init-schema` will not perform that upgrade. Upgrading a 0.2.x install to web admin accounts only adds tables: run `init-schema` or apply [migrations/add_admin_accounts_mysql.sql](migrations/add_admin_accounts_mysql.sql). Existing admin schemas require the [operator security upgrade](docs/deployment.md#web-admin-accounts). Never run both fresh creation methods on the same schema.
 
@@ -139,7 +134,7 @@ Client keys belong in the backend, never in a miniapp. See [the availability con
 
 ## Web admin
 
-`GET /admin` serves a React console (source in [admin-web/](admin-web/)). It opens on a sign-in page; operators sign in with a web admin account created by `tekes-quota-kit admin-user add`. Security administrators manage operator status and revoke sessions. Auditors review sign-ins and management operations. System administrators see the following pages:
+`GET /admin` serves a React console (source in [admin-web/](admin-web/)). It opens on a sign-in page; operators sign in with a web admin account created during deployment or by `tekes-quota-kit admin-user add`. Security administrators manage operator status and revoke sessions. Auditors review sign-ins and management operations. System administrators see the following pages:
 
 | Group | Pages |
 | --- | --- |
@@ -161,6 +156,7 @@ The console works at `/admin` or behind a reverse proxy path prefix such as `/us
 | `tekes-quota-kit init-schema` | Create missing `tq_` tables in `TEKES_QUOTA_DATABASE_URL`. |
 | `tekes-quota-kit expire-sessions [--limit N]` | Persist the `expired` state for durable sessions past their expiry (default limit 500 per run). Intended for cron. |
 | `tekes-quota-kit generate-secrets` | Print a new token secret. Needs no database. |
+| `tekes-quota-kit admin-user bootstrap --credentials-dir DIR` | Create missing role-named accounts and private first-use handoffs. |
 | `tekes-quota-kit admin-user add\|enroll --role ROLE --username NAME [--password-stdin]` | Create a named web admin or enroll a legacy account. Prompts twice unless `--password-stdin` reads one line. Passwords need 12–128 characters with upper/lowercase ASCII letters, a digit and punctuation, excluding the account name (case-insensitive). A password change signs out the account's sessions. |
 | `tekes-quota-kit admin-user disable\|enable --username NAME` | Disable an account and sign out its sessions, or re-enable it. |
 | `tekes-quota-kit admin-user passwd --username NAME` | Reset a password interactively. Requires a different password. |
