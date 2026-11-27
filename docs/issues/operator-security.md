@@ -23,3 +23,7 @@ All 210 Python tests passed, including MySQL integration and focused regressions
 Acceptance repair: an unused bootstrap password remains valid for first-use rotation when deployment and handoff occur days apart. The personal password's 90-day period starts at rotation. Once the handoff files are synced and pending inserts are flushed, a commit error preserves the files for roster reconciliation.
 
 The 27 focused authentication tests passed, including activation after a simulated 92 days and a SQLite commit whose acknowledgement was lost. The MySQL installer and all three first-use logins passed again. All 211 Python tests passed with optional MySQL coverage. Ruff and the whitespace check passed. The test client emitted the existing Starlette deprecation warning.
+
+## v0.19.0 release
+
+The release includes named operator roles, migration of the admin schema, withdrawal of the shared deployment admin key, and private first-password handoffs. See [deployment instructions](../deployment.md#web-admin-accounts) and the [release changes](../../CHANGELOG.md). Release verification is tracked in the release pull request and its CI checks.

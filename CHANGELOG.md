@@ -8,6 +8,11 @@ Before 1.0, minor versions may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-27
+
+### Added
+- Provision the three operator roles with independent temporary passwords written to private handoff files. Each password can only be used to set the first personal password.
+
 ### Changed
 - The administration console and API use named system administrators, security administrators and read-only auditors. Scripts authenticate with an individual session. The shared deployment admin key is retired.
 - Operator passwords require 12–128 characters, all four character classes and rotation within 90 days. Existing deployments must migrate their admin tables and enroll their operators. See [deployment instructions](docs/deployment.md#web-admin-accounts).
@@ -441,7 +446,9 @@ Before 1.0, minor versions may contain breaking changes.
 - Immutable usage ledger and issuer, provider, and consumer client roles.
 - `serve` and `init-schema` CLI commands and explicit MySQL DDL.
 
-[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.4...HEAD
+[Unreleased]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.5...v0.19.0
+[0.18.5]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/TekesApps/TekesQuotaKit/compare/v0.18.1...v0.18.2
