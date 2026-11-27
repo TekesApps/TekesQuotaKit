@@ -5,10 +5,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from . import __version__
 from .admin import create_admin_router
-from .admin_auth import AdminAccounts, require_admin_factory
+from .admin_auth import UNSAFE_METHODS, AdminAccounts, require_admin_factory
 from .core import (
     DEFAULT_CATALOG_ROLE,
     DEFAULT_INIT_ROLE,
@@ -210,9 +211,7 @@ class UseRequest(TokenRequest):
     request_key: str = Field(min_length=1, max_length=128)
 
 
-def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
-    if len(admin_key) < 32:
-        raise ValueError("Admin key must be at least 32 characters")
+def create_app(kit: QuotaKit) -> FastAPI:
     app = FastAPI(title="TekesQuotaKit", version=__version__)
 
     @app.exception_handler(QuotaError)
@@ -228,7 +227,25 @@ def create_app(kit: QuotaKit, admin_key: str) -> FastAPI:
         return authorization.removeprefix("Bearer ")
 
     accounts = AdminAccounts(kit)
-    admin = require_admin_factory(accounts, admin_key)
+
+    @app.middleware("http")
+    async def audit_admin_changes(request, call_next):
+        response = await call_next(request)
+        actor = getattr(request.state, "operator_name", None)
+        if actor and request.method in UNSAFE_METHODS:
+            route = request.scope["route"].path
+            target = "/".join(str(v) for v in request.path_params.values())
+
+            await run_in_threadpool(
+                accounts.record_request,
+                actor,
+                f"{request.method} {route}",
+                target[:512],
+                response.status_code,
+            )
+        return response
+
+    admin = require_admin_factory(accounts, "system_admin")
 
     def issuer(key: Annotated[str, Depends(bearer)]) -> Client:
         return kit.client(key, "issuer")

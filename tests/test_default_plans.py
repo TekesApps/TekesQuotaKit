@@ -4,11 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import event, func, select, update
 from sqlalchemy.exc import OperationalError
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaError, QuotaKit, utc_now
 from tekes_quota_kit.models import Assignment, Base, DefaultInitialization, LevelPackageCharge
 
@@ -38,7 +37,7 @@ def setup(tmp_path, *, filename="defaults.db"):
     for level, count in (("gift-a", 3), ("gift-b", 4)):
         kit.put_level(TENANT, level, publication_status="formal")
         kit.put_limit(TENANT, level, "visits", "finite", count, "month", "UTC")
-    app = TestClient(create_app(kit, ADMIN_KEY))
+    app = configured_client(kit, ADMIN_KEY)
     return kit, app
 
 

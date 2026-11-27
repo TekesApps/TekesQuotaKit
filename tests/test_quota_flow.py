@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaError, QuotaKit
 from tekes_quota_kit.models import Base
 
@@ -25,7 +25,7 @@ def configured(tmp_path, *, mode: str, limit: int) -> tuple[QuotaKit, TestClient
     kit.assign("demo-tenant", 42, "regular")
     kit.put_client("issuer", ISSUER_KEY, "demo-tenant", "example.run", "issuer")
     kit.put_client("provider", PROVIDER_KEY, "demo-tenant", "example.run", "provider")
-    return kit, TestClient(create_app(kit, ADMIN_KEY)), service_id
+    return kit, configured_client(kit, ADMIN_KEY), service_id
 
 
 def issue(client: TestClient, service_id: int, key: str) -> str:

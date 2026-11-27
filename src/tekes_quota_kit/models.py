@@ -336,6 +336,8 @@ class AdminUser(Base):
 
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    role: Mapped[str | None] = mapped_column(String(32))
+    password_changed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     password_hash: Mapped[str] = mapped_column(String(160), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
@@ -356,6 +358,17 @@ class AdminSession(Base):
         ForeignKeyConstraint(["admin_user_id"], ["tq_admin_users.id"]),
         Index("ix_tq_admin_session_user", "admin_user_id"),
     )
+
+
+class AdminOperation(Base):
+    __tablename__ = "tq_admin_operations"
+
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    actor: Mapped[str] = mapped_column(String(100))
+    operation: Mapped[str] = mapped_column(String(256))
+    target: Mapped[str] = mapped_column(String(512))
+    status: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(UTC_DATETIME)
 
 
 class AdminLoginAttempt(Base):

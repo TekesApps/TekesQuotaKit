@@ -4,10 +4,9 @@ import json
 import re
 from datetime import UTC, datetime, timedelta
 
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit
 from tekes_quota_kit.models import Base, Client
 
@@ -26,7 +25,7 @@ def setup(tmp_path):
     kit.put_limit(TENANT, "member", "door_open_count", "finite", 2, "week", "Asia/Shanghai")
     kit.put_service(TENANT, "door_open", "door_open_count")
     kit.put_level("other-business", "member")
-    return kit, TestClient(create_app(kit, ADMIN_KEY))
+    return kit, configured_client(kit, ADMIN_KEY)
 
 
 def provision(client, client_id, role, service_code=""):

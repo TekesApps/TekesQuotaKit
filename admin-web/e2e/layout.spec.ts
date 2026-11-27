@@ -39,7 +39,7 @@ function expectAligned(where: string, rows: Measure[]) {
 test('every editor control is the same height, unclipped and centered', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await expect(page.getByText('端到端测试')).toBeVisible();
 
@@ -93,7 +93,7 @@ test('every editor control is the same height, unclipped and centered', async ({
 test('sets the user ID definition, issues and deletes a member-sync credential', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
 
   // An explicit place for the definition, independent of issuing.
@@ -133,7 +133,7 @@ test('sets the user ID definition, issues and deletes a member-sync credential',
 test('disabled controls look alike, and rotation downloads without a form', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   const field = (scope: string, label: string) => page.locator(`${scope} label`).filter({ hasText: label }).locator('input');
 
@@ -187,7 +187,7 @@ test('disabled controls look alike, and rotation downloads without a form', asyn
 test('looks up one user\'s usage and drills from a member tier to 档位额度', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   const search = (label: string) => page.locator('.search-bar label').filter({ hasText: label }).locator('input');
 
@@ -216,7 +216,7 @@ test('looks up one user\'s usage and drills from a member tier to 档位额度',
 test('edits ordered member entitlements for a user and retains independent bindings', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '用户权益' }).click();
   await expect(page.getByRole('heading', { name: '辅助额度包模板', exact: true })).toHaveCount(0);
@@ -267,7 +267,7 @@ test.describe('adding a user\'s member entitlements', () => {
   async function openAdd(page: Page) {
     await page.goto('/user-quota/admin');
     await page.getByLabel('账号').fill('e2e');
-    await page.getByLabel('密码').fill('e2e-console-password');
+    await page.getByLabel('密码').fill('Console-Run42!');
     await page.getByRole('button', { name: /登录管理平台/ }).click();
     await page.locator('.nav-btn').filter({ hasText: '用户权益' }).click();
     await page.getByRole('button', { name: '设置用户权益', exact: true }).click();
@@ -320,7 +320,7 @@ test.describe('adding a user\'s member entitlements', () => {
 test('Chinese descriptions persist through all four configuration editors', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   for (const [nav, code, description] of [
     ['Service 服务', 'child', '基础体检服务\n按会员等级核对权益'],
@@ -354,7 +354,7 @@ test('Chinese descriptions persist through all four configuration editors', asyn
 test('limits distinguish service help from quota rules and show shared services', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '档位额度' }).click();
   await expect(page.getByRole('columnheader', { name: '关联 Service（服务说明）' })).toBeVisible();
@@ -379,7 +379,7 @@ test('limits distinguish service help from quota rules and show shared services'
 test('large limits use thousands separators while editors keep numeric values', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '档位额度' }).click();
   const row = page.locator('tbody tr').filter({ hasText: 'visits' });
@@ -399,7 +399,7 @@ test('large limits use thousands separators while editors keep numeric values', 
 async function openServiceStatus(page: Page) {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: 'Service 服务' }).click();
   const control = page.getByRole('combobox', { name: 'medication_ai 服务状态', exact: true });
@@ -454,7 +454,7 @@ test('failed service status save preserves the original value and retries', asyn
 test('usage formats thousands, current caps and consumed percentages including unlimited and zero', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '用量' }).click();
   const table = page.locator('.panel > .table-wrap');
@@ -484,7 +484,7 @@ test('usage formats thousands, current caps and consumed percentages including u
 test('usage defaults to highest consumption and can switch order while keeping filters', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '用量' }).click();
   const table = page.locator('.panel > .table-wrap');
@@ -510,7 +510,7 @@ test('usage defaults to highest consumption and can switch order while keeping f
 test('会员档位 test/formal publication survives editing and can be reversed', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.locator('.nav-btn').filter({ hasText: '会员档位' }).click();
   const row=page.locator('tbody tr').filter({ has:page.getByRole('cell',{name:'basic',exact:true}) });
@@ -532,7 +532,7 @@ test('会员档位 test/formal publication survives editing and can be reversed'
 test('creates and edits an entitlement plan while preserving generated package identities', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.getByRole('button', { name: '权益方案', exact: true }).click();
   await expect(page.getByRole('button', { name: '新增方案', exact: true })).toBeEnabled();
@@ -688,7 +688,7 @@ test('creates and edits an entitlement plan while preserving generated package i
 test('entitlement-plan editor fills desktop and 390px viewports without horizontal clipping', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.getByRole('button', { name: '权益方案', exact: true }).click();
   await expect(page.getByRole('button', { name: '新增方案', exact: true })).toBeEnabled();
@@ -744,7 +744,7 @@ test('entitlement-plan editor fills desktop and 390px viewports without horizont
 test('private entitlement plans can use a test member tier without promoting it', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await page.getByRole('button', { name: '会员档位', exact: true }).click();
   await page.getByRole('button', { name: '新增会员档位', exact: true }).click();
@@ -781,7 +781,7 @@ test('private entitlement plans can use a test member tier without promoting it'
 test('credential issuance waits for stored identity settings and fails closed on read errors', async ({ page }) => {
   await page.goto('/user-quota/admin');
   await page.getByLabel('账号').fill('e2e');
-  await page.getByLabel('密码').fill('e2e-console-password');
+  await page.getByLabel('密码').fill('Console-Run42!');
   await page.getByRole('button', { name: /登录管理平台/ }).click();
   await expect(page.getByText('端到端测试', {exact:true})).toBeVisible();
   let release!: () => void;

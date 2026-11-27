@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, _period
 from tekes_quota_kit.models import Base
 
@@ -38,7 +38,7 @@ def _shukang(tmp_path) -> TestClient:
     """The Shukang rules: door opens charge at once, measurements charge on completion."""
     kit = QuotaKit(f"sqlite:///{tmp_path / 'week.db'}", SECRET)
     Base.metadata.create_all(kit.engine)
-    client = TestClient(create_app(kit, ADMIN_KEY))
+    client = configured_client(kit, ADMIN_KEY)
     admin = {"Authorization": f"Bearer {ADMIN_KEY}"}
     base = f"/v1/admin/tenants/{TENANT}"
     calls = [

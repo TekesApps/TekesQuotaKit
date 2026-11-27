@@ -54,7 +54,7 @@ npm run build
 its text, or is off-center; CI runs it on every pull request.
 
 `npm run dev` serves the console with hot reload and proxies `/v1` to a Kit running on
-`127.0.0.1:9460`. Create a local account with `uv run tekes-quota-kit admin-user add --username dev`.
+`127.0.0.1:9460`. Create a local account with `uv run tekes-quota-kit admin-user add --username dev --role system_admin`.
 
 ## Code style
 

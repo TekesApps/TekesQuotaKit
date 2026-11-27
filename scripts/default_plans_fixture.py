@@ -12,6 +12,7 @@ from pathlib import Path
 import uvicorn
 from sqlalchemy.engine import make_url
 
+from tekes_quota_kit.admin_auth import ROLES, AdminAccounts
 from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit, utc_now
 from tekes_quota_kit.models import Base, Tenant
@@ -46,13 +47,19 @@ def main():
             "port": args.port,
             "tenant_id": "skzy-default-plan-fixture",
             "token_secret": secrets.token_urlsafe(48),
-            "admin_key": secrets.token_urlsafe(48),
             "catalog_key": secrets.token_urlsafe(48),
             "initialization_key": secrets.token_urlsafe(48),
             "consumer_key": secrets.token_urlsafe(48),
         }
         kit = QuotaKit(url, config["token_secret"])
         Base.metadata.create_all(kit.engine)
+        accounts = AdminAccounts(kit)
+        for role in ROLES:
+            password = secrets.token_urlsafe(32) + "aA7!"
+            accounts.create(f"fixture-{role}", password, role)
+            if role == "system_admin":
+                system_password = password
+        config["admin_key"] = accounts.login("fixture-system_admin", system_password)
         tenant = config["tenant_id"]
         with kit.sessions.begin() as db:
             db.add(
@@ -126,7 +133,7 @@ def main():
         return
     config = json.loads(manifest.read_text())
     kit = QuotaKit(config["database_url"], config["token_secret"])
-    uvicorn.run(create_app(kit, config["admin_key"]), host="127.0.0.1", port=config["port"])
+    uvicorn.run(create_app(kit), host="127.0.0.1", port=config["port"])
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import { OperatorPanel } from './operator-panel';
 import { api, ApiError } from './api';
 import type { Row, User } from './types';
 import { Sidebar, type NavigationGroup } from './sidebar';
@@ -22,15 +23,16 @@ const remember = (key: string, value: string) => { try { localStorage.setItem(ke
 
 function Login({ onLogin, initialError }: { onLogin: (user: User) => void; initialError: string }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(initialError);
+  const [rotate, setRotate] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     const data = Object.fromEntries(new FormData(event.currentTarget));
     try { onLogin((await api<{ data: User }>('/session/login', 'POST', data)).data); }
-    catch (e) { setError(e instanceof Error ? e.message : '登录失败'); } finally { setBusy(false); }
+    catch (e) { if (e instanceof ApiError && e.status === 403) setRotate(true); setError(e instanceof Error ? e.message : '登录失败'); } finally { setBusy(false); }
   }
   return <main className="login">
     <section className="login-story"><div className="wordmark">✳ TekesQuotaKit <span>ADMIN</span></div><div><p className="eyebrow">SERVICE QUOTA OPERATIONS</p><h1>让每一次服务，<br/>有据可依。</h1><p>服务、配额、会员档位与接入凭据的统一管理工作台。</p></div><small>TekesQuotaKit 配额管理</small></section>
-    <section className="login-panel"><form onSubmit={submit}><div className="tag">管理人员入口</div><h2>登录工作台</h2><p className="muted">使用配额管理账号登录</p>{error && <p role="alert" className="error">{error}</p>}<label>账号<input name="username" required autoComplete="username" maxLength={100} /></label><label>密码<input name="password" type="password" required autoComplete="current-password" maxLength={128} /></label><button className="primary" disabled={busy}>{busy ? '正在登录…' : '登录管理平台 →'}</button></form></section>
+    <section className="login-panel"><form onSubmit={submit}><div className="tag">管理人员入口</div><h2>登录工作台</h2><p className="muted">使用配额管理账号登录</p>{error && <p role="alert" className="error">{error}</p>}<label>账号<input name="username" required autoComplete="username" maxLength={100} /></label><label>密码<input name="password" type="password" required autoComplete="current-password" maxLength={128} /></label>{rotate && <label>新密码<input name="new_password" type="password" required autoComplete="new-password" minLength={12} maxLength={128} /><small>12 至 128 位，含大小写字母、数字和标点。避开账号名，与当前密码不同。</small></label>}<button type="button" className="ghost" onClick={() => setRotate(!rotate)}>{rotate ? '返回登录' : '更改密码'}</button><button className="primary" disabled={busy}>{busy ? '正在登录…' : (rotate ? '更改密码并登录' : '登录管理平台 →')}</button></form></section>
   </main>;
 }
 
@@ -77,7 +79,7 @@ function App() {
   }, []);
   const [tenants, setTenants] = useState<TenantItem[] | null>(null);
   useEffect(() => {
-    if (!user) { setTenants(null); return; }
+    if (user?.role !== 'system_admin') { setTenants(null); return; }
     api<{ items: TenantItem[] }>('/tenants').then(r => setTenants(r.items)).catch(e => { setTenants([]); setError(e instanceof Error ? e.message : '业务系统加载失败'); });
   }, [user, revision]);
   const registered = (tenants ?? []).filter(t => t.registered);
@@ -96,9 +98,10 @@ function App() {
   function changed(message: string) { setNotice(message); setRevision(r => r + 1); }
   if (initializing) return <div className="loading">正在连接配额管理平台…</div>;
   if (!user) return <Login initialError={error} onLogin={u => { setUser(u); setError(''); }} />;
+  if (user.role !== 'system_admin') return <OperatorPanel user={user} logout={() => void logout()} />;
   const title = tenants && !tenant ? '设置业务系统' : navigation.flatMap(group => group.items).find(([key]) => key === section)?.[1] || '配额管理';
   const props: PageProps = { tenant, revision, onChanged: changed, focus, onNavigate: go };
-  const name = user.username || '管理员密钥';
+  const name = user.username;
   return <div className={`admin-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}><Sidebar groups={navigation} section={section} version={user.version} onCollapse={setSidebarCollapsed} onNavigate={key => go(key)} />
     <div className="workspace"><header className="workspace-header"><span>配额管理 <span className="muted"> / {title}</span></span><div>{tenant && <TenantSwitch items={registered} value={tenant} onChange={changeTenant} />}<span className="avatar">{name.slice(0, 1).toUpperCase()}</span>{name}<button className="ghost" disabled={busy} onClick={() => void logout()}>退出</button></div></header>
       <main className="main"><div className="topbar"><div><p className="eyebrow">{tenant ? `BUSINESS · ${tenant}` : 'SETUP'}</p><h1>{title}</h1></div><button className="secondary" onClick={() => { setRevision(r => r + 1); setNotice(''); }}>刷新</button></div>

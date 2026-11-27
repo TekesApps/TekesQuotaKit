@@ -177,6 +177,8 @@ CREATE TABLE tq_service_members (
 CREATE TABLE tq_admin_users (
 	id BIGINT NOT NULL AUTO_INCREMENT,
 	username VARCHAR(100) NOT NULL,
+	role VARCHAR(32),
+	password_changed_at DATETIME(6),
 	password_hash VARCHAR(160) NOT NULL,
 	status VARCHAR(16) NOT NULL,
 	created_at DATETIME(6) NOT NULL,
@@ -388,4 +390,13 @@ CREATE TABLE tq_default_initialization_packages (
 	FOREIGN KEY(initialization_id) REFERENCES tq_default_initializations (id),
 	FOREIGN KEY(assignment_id) REFERENCES tq_assignments (id),
 	UNIQUE (assignment_id)
+);
+
+CREATE TABLE tq_admin_operations (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    actor VARCHAR(100) NOT NULL,
+    operation VARCHAR(256) NOT NULL,
+    target VARCHAR(512) NOT NULL,
+    status INTEGER NOT NULL,
+    recorded_at DATETIME(6) NOT NULL
 );

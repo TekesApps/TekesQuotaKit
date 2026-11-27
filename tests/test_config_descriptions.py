@@ -1,10 +1,9 @@
 """Configuration notes survive legacy callers and never change entitlement accounting."""
 
 import pytest
-from fastapi.testclient import TestClient
+from operator_fixture import configured_client
 from sqlalchemy import select
 
-from tekes_quota_kit.api import create_app
 from tekes_quota_kit.core import QuotaKit
 from tekes_quota_kit.models import Base, Client, Level, Limit, Quota, Service
 
@@ -21,7 +20,7 @@ def test_description_roundtrip_and_legacy_compatibility(tmp_path, kind):
         kit.put_service(tenant, "exam", "measure")
         kit.put_limit(tenant, "star", "measure", "finite", 4, "month", "Asia/Shanghai")
     kit.assign("demo", "42", "star")
-    client = TestClient(create_app(kit, KEY))
+    client = configured_client(kit, KEY)
     headers = {"Authorization": f"Bearer {KEY}"}
     configs = {
         "levels": ("levels/star", {}, Level),
